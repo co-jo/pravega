@@ -12,6 +12,7 @@ package io.pravega.test.system.framework.kubernetes;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import io.kubernetes.client.custom.V1Patch;
 import io.kubernetes.client.openapi.ApiCallback;
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.ApiException;
@@ -39,6 +40,7 @@ import io.kubernetes.client.openapi.models.V1beta1CustomResourceDefinition;
 import io.kubernetes.client.openapi.models.V1beta1Role;
 import io.kubernetes.client.openapi.models.V1beta1RoleBinding;
 import io.kubernetes.client.util.Config;
+import io.kubernetes.client.util.PatchUtils;
 import io.kubernetes.client.util.Watch;
 import io.pravega.common.Exceptions;
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
@@ -324,6 +326,17 @@ public class K8sClient {
                         //patch object
                         K8AsyncCallback<Object> cb1 = new K8AsyncCallback<>("patchCustomObject");
                         api.patchNamespacedCustomObjectAsync(customResourceGroup, version, namespace, plural, name, request, cb1);
+                        PatchUtils.patch(CustomObjectsApi.class,
+                                () ->
+                                        api.patchNamespacedCustomObjectCall(
+                                                customResourceGroup,
+                                                version,
+                                                namespace,
+                                                plural,
+                                                name,
+                                                request,
+                                                cb1),
+                                V1Patch.PATCH_FORMAT_JSON_MERGE_PATCH);
                         return cb1.getFuture();
                     } catch (ApiException e) {
                         throw Exceptions.sneakyThrow(e);
@@ -377,8 +390,8 @@ public class K8sClient {
         V1DeleteOptions options = new V1DeleteOptions();
         options.setOrphanDependents(false);
         K8AsyncCallback<Object> callback = new K8AsyncCallback<>("getCustomObject");
-        api.deleteNamespacedCustomObjectAsync(customResourceGroup, version, namespace, plural, name, options,
-                0, false, null, callback);
+        api.deleteNamespacedCustomObjectAsync(customResourceGroup, version, namespace, plural, name,
+                0, false, null, options, callback);
 
         return callback.getFuture();
     }
