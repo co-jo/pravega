@@ -90,6 +90,7 @@ public class Utils {
     }
 
     public static Service createPravegaControllerService(final URI zkUri, String serviceName) {
+        log.debug("createPravegaControllerService: {} {}", EXECUTOR_TYPE, serviceName);
         switch (EXECUTOR_TYPE) {
             case REMOTE_SEQUENTIAL:
                 return new PravegaControllerService(serviceName, zkUri);

@@ -76,6 +76,7 @@ abstract class AbstractSystemTest {
     }
 
     static List<URI> ensureSegmentStoreRunning(final URI zkUri, final URI controllerURI) {
+        log.debug("ensureSegmentStoreRunning");
         Service segService = Utils.createPravegaSegmentStoreService(zkUri, controllerURI);
         return startSegmentStoreService(segService);
     }

@@ -83,7 +83,7 @@ public class K8sClient {
     private static final long LOG_DOWNLOAD_INIT_DELAY_MS = SECONDS.toMillis(20);
     // When present, indicates that modifications should not be persisted. Only valid value is "All", or null.
     private static final String DRY_RUN = null;
-    private static final String FIELD_MANAGER = "operator";
+    private static final String FIELD_MANAGER = "pravega-k8-client";
     private static final String PRETTY_PRINT = "false";
     private final ApiClient client;
     private final PodLogs logUtility;
