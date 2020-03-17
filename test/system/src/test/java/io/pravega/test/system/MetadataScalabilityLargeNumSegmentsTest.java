@@ -18,6 +18,7 @@ import io.pravega.test.system.framework.SystemTestRunner;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -32,6 +33,7 @@ import java.util.stream.Collectors;
  * This test creates a stream with 10k segments and then rapidly scales it 10 times.
  * Then it performs truncation a random number of times.
  */
+@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class MetadataScalabilityLargeNumSegmentsTest extends MetadataScalabilityTest {

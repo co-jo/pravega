@@ -27,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.rules.Timeout;
 import org.junit.runner.RunWith;
@@ -54,6 +55,7 @@ import static org.junit.Assert.assertTrue;
  * Then we perform truncation arbitrary number of times but the moment any truncation stream cut contains a segment from latest epoch,
  * the test concludes. Post which we seal and delete the stream.
  */
+@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public abstract class MetadataScalabilityTest extends AbstractScaleTests {

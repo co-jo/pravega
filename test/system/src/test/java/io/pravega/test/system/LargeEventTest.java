@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
@@ -45,6 +46,7 @@ import static org.apache.commons.lang.RandomStringUtils.randomAlphanumeric;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class LargeEventTest extends AbstractReadWriteTest {

@@ -75,7 +75,7 @@ import static javax.ws.rs.core.Response.Status.NOT_FOUND;
 @Slf4j
 public class K8sClient {
 
-    private static final boolean ALLOW_WATCH_BOOKMARKS = false;
+    private static final boolean ALLOW_WATCH_BOOKMARKS = true;
     // Indicates if an object can be returned without completing its initialization.
     private static final int DEFAULT_TIMEOUT_MINUTES = 10; // timeout of http client.
     private static final int RETRY_MAX_DELAY_MS = 1_000; // max time between retries to check if pod has completed.
@@ -118,7 +118,7 @@ public class K8sClient {
         try {
             log.debug("Initialize KUBERNETES api client");
             client = Config.defaultClient();
-            client.setDebugging(false); // this can be set to true enable http dump.
+            client.setDebugging(true); // this can be set to true enable http dump.
             client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build();
             Configuration.setDefaultApiClient(client);
             Runtime.getRuntime().addShutdownHook(new Thread(this::close));
