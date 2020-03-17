@@ -320,39 +320,38 @@ public class K8sClient {
         //Fetch the name of the custom object.
         String name = ((Map<String, String>) request.get("metadata")).get("name");
         return getCustomObject(customResourceGroup, version, namespace, plural, name)
-                .thenCompose(o -> {
-                    log.info("Instance {} of custom resource {}  exists, update it with the new request", name, customResourceGroup);
-                    try {
-                        //patch object
-                        K8AsyncCallback<Object> cb1 = new K8AsyncCallback<>("patchCustomObject");
-                        api.patchNamespacedCustomObjectAsync(customResourceGroup, version, namespace, plural, name, request, cb1);
-                        PatchUtils.patch(CustomObjectsApi.class,
-                                () ->
-                                        api.patchNamespacedCustomObjectCall(
-                                                customResourceGroup,
-                                                version,
-                                                namespace,
-                                                plural,
-                                                name,
-                                                request,
-                                                cb1),
-                                V1Patch.PATCH_FORMAT_JSON_MERGE_PATCH);
-                        return cb1.getFuture();
-                    } catch (ApiException e) {
-                        throw Exceptions.sneakyThrow(e);
-                    }
-                }).exceptionally(t -> {
-                    log.warn("Exception while trying to fetch instance {} of custom resource {}, try to create it. Details: {}", name,
-                            customResourceGroup, t.getMessage());
-                    try {
-                        //create object
-                        K8AsyncCallback<Object> cb = new K8AsyncCallback<>("createCustomObject");
-                        api.createNamespacedCustomObjectAsync(customResourceGroup, version, namespace, plural, request, PRETTY_PRINT, cb);
-                        return cb.getFuture();
-                    } catch (ApiException e) {
-                        throw Exceptions.sneakyThrow(e);
-                    }
-                });
+            .thenCompose(o -> {
+                log.info("Instance {} of custom resource {}  exists, update it with the new request", name, customResourceGroup);
+                try {
+                    //patch object
+                    K8AsyncCallback<Object> cb1 = new K8AsyncCallback<>("patchCustomObject");
+                    PatchUtils.patch(CustomObjectsApi.class,
+                        () ->
+                            api.patchNamespacedCustomObjectCall(
+                                customResourceGroup,
+                                version,
+                                namespace,
+                                plural,
+                                name,
+                                request,
+                                cb1),
+                        V1Patch.PATCH_FORMAT_JSON_MERGE_PATCH);
+                    return cb1.getFuture();
+                } catch (ApiException e) {
+                    throw Exceptions.sneakyThrow(e);
+                }
+            }).exceptionally(t -> {
+                log.warn("Exception while trying to fetch instance {} of custom resource {}, try to create it. Details: {}", name,
+                        customResourceGroup, t.getMessage());
+                try {
+                    //create object
+                    K8AsyncCallback<Object> cb = new K8AsyncCallback<>("createCustomObject");
+                    api.createNamespacedCustomObjectAsync(customResourceGroup, version, namespace, plural, request, PRETTY_PRINT, cb);
+                    return cb.getFuture();
+                } catch (ApiException e) {
+                    throw Exceptions.sneakyThrow(e);
+                }
+            });
     }
 
     /**
