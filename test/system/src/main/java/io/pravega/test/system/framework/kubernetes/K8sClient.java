@@ -123,8 +123,8 @@ public class K8sClient {
             log.debug("Read Timeout Before: {} ", client.getReadTimeout());
             OkHttpClient c = client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build();
             log.debug("Equals? A: {}", c == client.getHttpClient());
-            log.debug("Read Timeout After: {} ", client.getReadTimeout());
             client.setHttpClient(c);
+            log.debug("Read Timeout After: {} ", client.getReadTimeout());
             log.debug("Equals? B: {}", c == client.getHttpClient());
             Configuration.setDefaultApiClient(client);
             Runtime.getRuntime().addShutdownHook(new Thread(this::close));

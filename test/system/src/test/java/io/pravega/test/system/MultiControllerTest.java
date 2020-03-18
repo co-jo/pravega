@@ -165,7 +165,7 @@ public class MultiControllerTest extends AbstractSystemTest {
 
         // Need to retry since there is a delay for the mesos DNS name to resolve correctly.
         @Cleanup
-        final ControllerImpl controllerClient = new ControllerImpl(ControllerImplConfig.builder()
+        finar ControllerImpl controllerClient = new ControllerImpl(ControllerImplConfig.builder()
                 .clientConfig(clientConfig)
                 .build(), executorService);
 
