@@ -73,7 +73,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class ControllerRestApiTest extends AbstractSystemTest {

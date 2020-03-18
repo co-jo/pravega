@@ -33,7 +33,6 @@ import java.util.stream.Collectors;
  * This test creates a stream with 10k segments and then rapidly scales it 10 times.
  * Then it performs truncation a random number of times.
  */
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class MetadataScalabilityLargeNumSegmentsTest extends MetadataScalabilityTest {

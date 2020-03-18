@@ -43,7 +43,6 @@ import org.junit.runner.RunWith;
 
 import static java.time.Duration.ofSeconds;
 
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class ReadWithAutoScaleTest extends AbstractScaleTests {

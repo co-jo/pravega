@@ -40,7 +40,6 @@ import static io.pravega.test.common.AssertExtensions.assertThrows;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class StreamsAndScopesManagementTest extends AbstractReadWriteTest {

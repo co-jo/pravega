@@ -38,7 +38,6 @@ import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertTrue;
 
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class MultiReaderWriterWithFailOverTest extends AbstractFailoverTests {

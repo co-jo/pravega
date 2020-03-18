@@ -27,7 +27,6 @@ import java.net.URI;
 import static org.apache.curator.framework.imps.CuratorFrameworkState.STARTED;
 import static org.junit.Assert.assertEquals;
 
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class ZookeeperTest {
