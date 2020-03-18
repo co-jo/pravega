@@ -38,6 +38,7 @@ import org.junit.runner.RunWith;
 import static io.pravega.test.system.framework.Utils.DOCKER_BASED;
 import static org.junit.Assert.assertEquals;
 
+@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class MultiControllerTest extends AbstractSystemTest {
@@ -165,7 +166,7 @@ public class MultiControllerTest extends AbstractSystemTest {
 
         // Need to retry since there is a delay for the mesos DNS name to resolve correctly.
         @Cleanup
-        finar ControllerImpl controllerClient = new ControllerImpl(ControllerImplConfig.builder()
+        final ControllerImpl controllerClient = new ControllerImpl(ControllerImplConfig.builder()
                 .clientConfig(clientConfig)
                 .build(), executorService);
 
