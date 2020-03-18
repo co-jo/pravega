@@ -119,7 +119,9 @@ public class K8sClient {
             log.debug("Initialize KUBERNETES api client");
             client = Config.defaultClient();
             client.setDebugging(false); // this can be set to true enable http dump.
-            client.setHttpClient(client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build());
+            log.debug("Read Timeout Before: {} ", client.getReadTimeout());
+            client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build();
+            log.debug("Read Timeout After: {} ", client.getReadTimeout());
             Configuration.setDefaultApiClient(client);
             Runtime.getRuntime().addShutdownHook(new Thread(this::close));
         } catch (IOException e) {
