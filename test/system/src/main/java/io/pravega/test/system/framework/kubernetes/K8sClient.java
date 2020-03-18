@@ -78,10 +78,10 @@ public class K8sClient {
 
     private static final boolean ALLOW_WATCH_BOOKMARKS = true;
     // Indicates if an object can be returned without completing its initialization.
-    private static final int DEFAULT_TIMEOUT_MINUTES = 11; // timeout of http client.
+    private static final int DEFAULT_TIMEOUT_MINUTES = 10; // timeout of http client.
     private static final int RETRY_MAX_DELAY_MS = 1_000; // max time between retries to check if pod has completed.
     private static final int RETRY_COUNT = 50; // Max duration incase of an exception is around 50 * RETRY_MAX_DELAY_MS = 50 seconds.
-    private static final int LOG_DOWNLOAD_RETRY_COUNT = 20;
+    private static final int LOG_DOWNLOAD_RETRY_COUNT = 10;
     // Delay before starting to download the logs. The K8s api server responds with error code 400 if immediately requested for log download.
     private static final long LOG_DOWNLOAD_INIT_DELAY_MS = SECONDS.toMillis(20);
     // When present, indicates that modifications should not be persisted. Only valid value is "All", or null.
@@ -120,12 +120,7 @@ public class K8sClient {
             log.debug("Initialize KUBERNETES api client");
             client = Config.defaultClient();
             client.setDebugging(false); // this can be set to true enable http dump.
-            log.debug("Read Timeout Before: {} ", client.getReadTimeout());
-            OkHttpClient c = client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build();
-            log.debug("Equals? A: {}", c == client.getHttpClient());
-            client.setHttpClient(c);
-            log.debug("Read Timeout After: {} ", client.getReadTimeout());
-            log.debug("Equals? B: {}", c == client.getHttpClient());
+            client.setHttpClient(client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build());
             Configuration.setDefaultApiClient(client);
             Runtime.getRuntime().addShutdownHook(new Thread(this::close));
         } catch (IOException e) {
