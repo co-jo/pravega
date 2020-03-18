@@ -752,6 +752,8 @@ project('test:system') {
             }
         }
         from sourceSets.test.output
+
+        print sourceSets.test
         exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
     }
 

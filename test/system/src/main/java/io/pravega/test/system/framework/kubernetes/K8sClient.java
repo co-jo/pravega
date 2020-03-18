@@ -65,6 +65,7 @@ import java.util.stream.Collectors;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.OkHttpClient;
 
 import static io.pravega.common.concurrent.Futures.exceptionallyExpecting;
 import static io.pravega.test.system.framework.TestFrameworkException.Type.ConnectionFailed;
@@ -77,7 +78,7 @@ public class K8sClient {
 
     private static final boolean ALLOW_WATCH_BOOKMARKS = true;
     // Indicates if an object can be returned without completing its initialization.
-    private static final int DEFAULT_TIMEOUT_MINUTES = 10; // timeout of http client.
+    private static final int DEFAULT_TIMEOUT_MINUTES = 11; // timeout of http client.
     private static final int RETRY_MAX_DELAY_MS = 1_000; // max time between retries to check if pod has completed.
     private static final int RETRY_COUNT = 50; // Max duration incase of an exception is around 50 * RETRY_MAX_DELAY_MS = 50 seconds.
     private static final int LOG_DOWNLOAD_RETRY_COUNT = 20;
@@ -120,8 +121,11 @@ public class K8sClient {
             client = Config.defaultClient();
             client.setDebugging(false); // this can be set to true enable http dump.
             log.debug("Read Timeout Before: {} ", client.getReadTimeout());
-            client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build();
+            OkHttpClient c = client.getHttpClient().newBuilder().readTimeout(DEFAULT_TIMEOUT_MINUTES, TimeUnit.MINUTES).build();
+            log.debug("Equals? A: {}", c == client.getHttpClient());
             log.debug("Read Timeout After: {} ", client.getReadTimeout());
+            client.setHttpClient(c);
+            log.debug("Equals? B: {}", c == client.getHttpClient());
             Configuration.setDefaultApiClient(client);
             Runtime.getRuntime().addShutdownHook(new Thread(this::close));
         } catch (IOException e) {
