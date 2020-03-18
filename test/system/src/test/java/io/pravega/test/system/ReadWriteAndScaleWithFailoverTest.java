@@ -43,7 +43,6 @@ import org.junit.runner.RunWith;
 
 import static org.junit.Assert.assertFalse;
 
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class ReadWriteAndScaleWithFailoverTest extends AbstractFailoverTests {

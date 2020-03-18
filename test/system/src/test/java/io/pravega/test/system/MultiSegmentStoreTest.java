@@ -44,7 +44,6 @@ import org.junit.runner.RunWith;
 /**
  * Test cases for deploying multiple segment stores.
  */
-@Ignore
 @Slf4j
 @RunWith(SystemTestRunner.class)
 public class MultiSegmentStoreTest extends AbstractSystemTest {
