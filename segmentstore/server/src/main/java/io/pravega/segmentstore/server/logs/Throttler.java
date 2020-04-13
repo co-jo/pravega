@@ -148,7 +148,7 @@ class Throttler implements ThrottleSourceListener, AutoCloseable {
             // processing of operations) or if this is due to us not being able to ingest items quickly enough.
             log.warn("{}: Processing delay = {}.", this.traceObjectId, delay);
         } else {
-            log.debug("{}: Processing delay = {}.", this.traceObjectId, delay);
+            log.info("{}: Processing delay = {}.", this.traceObjectId, delay);
         }
 
         val delayFuture = createDelayFuture(delay.getDurationMillis());
