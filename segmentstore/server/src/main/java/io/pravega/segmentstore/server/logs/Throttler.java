@@ -122,7 +122,10 @@ class Throttler implements ThrottleSourceListener, AutoCloseable {
                 if (remaining > 0 && remaining < delay.get().getDurationMillis()) {
                     delay.set(delay.get().withNewDelay(remaining));
                 }
+                // Report the elapsed delay that has already occured from the previous throttling cycle.
                 this.metrics.processingDelay((int) existingDelay.remaining.getElapsed().toMillis(), existingDelay.source.toString());
+                // However, we now need to make sure this throttler does not report any future delays.
+                this.metrics.processingDelay(0, existingDelay.source.toString());
             }
 
             return throttleOnce(delay.get());
@@ -170,9 +173,7 @@ class Throttler implements ThrottleSourceListener, AutoCloseable {
             if (delay.getThrottlerName() != null) {
                 this.metrics.processingDelay(delay.getDurationMillis(), delay.getThrottlerName().toString());
             }
-            return delayFuture.whenComplete((r, e) -> {
-                this.metrics.processingDelay(0, delay.getThrottlerName().toString());
-            });
+            return delayFuture;
         }
     }
 
