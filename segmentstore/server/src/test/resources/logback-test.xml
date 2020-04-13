@@ -9,12 +9,13 @@
 -->
 <configuration>
     <!-- This config is valid for all unit tests in this module. We are turning off all logging for unit tests -->
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>throttler.log</file>
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>%msg%n</pattern>
         </encoder>
     </appender>
-    <root level="OFF">
-        <appender-ref ref="CONSOLE"/>
+    <root level="DEBUG">
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>

@@ -170,7 +170,9 @@ class Throttler implements ThrottleSourceListener, AutoCloseable {
             if (delay.getThrottlerName() != null) {
                 this.metrics.processingDelay(delay.getDurationMillis(), delay.getThrottlerName().toString());
             }
-            return delayFuture;
+            return delayFuture.whenComplete((r, e) -> {
+                this.metrics.processingDelay(0, delay.getThrottlerName().toString());
+            });
         }
     }
 
