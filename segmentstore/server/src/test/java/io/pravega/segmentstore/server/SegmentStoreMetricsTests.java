@@ -156,6 +156,8 @@ public class SegmentStoreMetricsTests {
         assertEquals(delay, (int) MetricRegistryUtils.getGauge(MetricsNames.OPERATION_PROCESSOR_DELAY_MILLIS, throttlerTag(containerId, "Batching")).value());
         op.processingDelay(delay * delay, "Batching");
         assertEquals(delay * delay, (int) MetricRegistryUtils.getGauge(MetricsNames.OPERATION_PROCESSOR_DELAY_MILLIS, throttlerTag(containerId, "Batching")).value());
+
+        op.close();
     }
 
 }
