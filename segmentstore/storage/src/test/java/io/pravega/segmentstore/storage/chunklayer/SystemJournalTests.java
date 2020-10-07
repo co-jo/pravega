@@ -20,6 +20,9 @@ import io.pravega.segmentstore.storage.mocks.InMemoryMetadataStore;
 import io.pravega.shared.NameUtils;
 import io.pravega.test.common.AssertExtensions;
 import io.pravega.test.common.ThreadPooledTestSuite;
+import java.io.ByteArrayInputStream;
+import java.time.Duration;
+import java.util.ArrayList;
 import lombok.val;
 import org.junit.After;
 import org.junit.Assert;
@@ -27,10 +30,6 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
-
-import java.io.ByteArrayInputStream;
-import java.time.Duration;
-import java.util.ArrayList;
 
 /**
  * Tests for testing bootstrap functionality with {@link SystemJournal}.
