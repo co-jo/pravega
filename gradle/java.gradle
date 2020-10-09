@@ -82,7 +82,7 @@ plugins.withId('java') {
     }
 
     tasks.withType(Test) {
-        systemProperties 'logback.configurationFile' : new File(buildDir,'resources/test/logback.xml').absolutePath
+        systemProperties 'logback.configurationFile' : System.properties['logback.configurationFile'] ? new File(rootDir, System.properties['logback.configurationFile']) : new File(buildDir, '/resources/test/logback.xml')
         testLogging.showStandardStreams = false
         testLogging.exceptionFormat = "FULL"
         testLogging.showCauses = true

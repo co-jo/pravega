@@ -11,6 +11,9 @@ import org.gradle.internal.jvm.Jvm
  *
  */
 // Apply the java plugin to add support for Java
+
+print System.getProperties()
+
 buildscript {
 
     // log the current JVM version.
@@ -69,6 +72,12 @@ allprojects {
                 args(it, "-d", outputDir)
             }
         }
+	afterEvaluate { project ->
+		test {
+			testLogging.events = ["FAILED", "SKIPPED"]
+		}
+
+	}
     }
     // Plugin configurations
     apply from: "$rootDir/gradle/application.gradle"
