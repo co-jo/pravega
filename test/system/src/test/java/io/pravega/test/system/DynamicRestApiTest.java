@@ -9,9 +9,7 @@
  */
 package io.pravega.test.system;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
-import io.swagger.util.Json;
+import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJsonProvider;
 
 import io.pravega.client.ClientConfig;
 import io.pravega.client.admin.StreamManager;
@@ -29,14 +27,11 @@ import io.pravega.test.system.framework.services.Service;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
-import javax.ws.rs.Produces;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Invocation;
 import javax.ws.rs.client.WebTarget;
-import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.ext.Provider;
 
 import org.apache.commons.lang3.RandomStringUtils;
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
@@ -148,15 +143,5 @@ public class DynamicRestApiTest extends AbstractSystemTest {
         assertEquals("Get streams failed.", OK.getStatusCode(), response.getStatus());
         responseAsString = response.readEntity(String.class);
         assertTrue(responseAsString.contains(String.format("\"streamName\":\"%s\"", stream1)));
-    }
-
-    @Provider
-    @Produces({MediaType.APPLICATION_JSON})
-    private class JacksonJsonProvider extends JacksonJaxbJsonProvider {
-        private ObjectMapper commonMapper = Json.mapper();
-
-        public JacksonJsonProvider() {
-            super.setMapper(commonMapper);
-        }
     }
 }
