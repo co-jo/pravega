@@ -9,5 +9,6 @@ class InetTests {
         System.out.println(Inet4Address.getLocalHost().getHostAddress());
         InetSocketAddress inetAddr = new InetSocketAddress("localhost", 3181);
         System.out.println(InetAddress.getByName("2c1b9d5bfb2c").getHostName());
+        System.out.println(InetAddress.getByName("2c1b9d5bfb2c").isUnresolved());
     }
 }
