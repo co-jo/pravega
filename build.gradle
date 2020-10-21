@@ -730,7 +730,7 @@ project('cli:admin') {
     }
 
     test {
-        jvmArgs = ["-Djava.jdk.net.hosts.file", "${project.rootDir}/config/hosts"]
+        jvmArgs = ["-Djdk.net.hosts.file=${project.rootDir}/config/hosts"]
     }
 }
 
