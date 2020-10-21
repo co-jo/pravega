@@ -728,10 +728,6 @@ project('cli:admin') {
         source = delombok.outputDir
         failOnError = true
     }
-
-    test {
-        jvmArgs = ["-agentlib:jdwp=transport=dt_shmem,server=y,suspend=n"]
-    }
 }
 
 project('cli:user') {
