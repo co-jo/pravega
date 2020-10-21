@@ -730,7 +730,7 @@ project('cli:admin') {
     }
 
     test {
-        jvmArgs = ["-Djdk.net.hosts.file=${project.rootDir}/config/hosts"]
+        jvmArgs = ["-agentlib:jdwp=transport=dt_shmem,server=y,suspend=n"]
     }
 }
 
