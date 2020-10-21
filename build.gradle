@@ -728,6 +728,10 @@ project('cli:admin') {
         source = delombok.outputDir
         failOnError = true
     }
+
+    test {
+        jvmArgs = ["-Djava.jdk.net.hosts.file", "${project.rootDir}/config/hosts"]
+    }
 }
 
 project('cli:user') {
