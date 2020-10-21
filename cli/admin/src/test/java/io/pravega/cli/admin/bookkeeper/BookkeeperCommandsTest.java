@@ -44,6 +44,7 @@ import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
+import java.net.InetSocketAddress;
 /**
  * Test basic functionality of Bookkeeper commands.
  */
@@ -87,14 +88,14 @@ public class BookkeeperCommandsTest extends BookKeeperClusterTestCase {
         STATE.get().close();
     }
 
-    @Test
+    @Test(timeout = 600000)
     public void testBookKeeperListCommand() throws Exception {
         createLedgerInBookkeeperTestCluster(0);
         String commandResult = TestUtils.executeCommand("bk list", STATE.get());
         Assert.assertTrue(commandResult.contains("log_summary") && commandResult.contains("logId\": 0"));
     }
 
-    @Test
+    @Test(timeout = 600000)
     public void testBookKeeperDetailsCommand() throws Exception {
         createLedgerInBookkeeperTestCluster(0);
         String commandResult = TestUtils.executeCommand("bk details 0", STATE.get());
@@ -103,7 +104,7 @@ public class BookkeeperCommandsTest extends BookKeeperClusterTestCase {
         Assert.assertTrue(commandResult.contains("log_no_metadata"));
     }
 
-    @Test
+    @Test(timeout = 600000)
     public void testBookKeeperDisableAndEnableCommands() throws Exception {
         createLedgerInBookkeeperTestCluster(0);
         System.setIn(new ByteArrayInputStream("no".getBytes()));
@@ -133,7 +134,7 @@ public class BookkeeperCommandsTest extends BookKeeperClusterTestCase {
         AssertExtensions.assertThrows(DataLogNotAvailableException.class, () -> TestUtils.executeCommand("bk enable 0", STATE.get()));
     }
 
-    @Test
+    @Test(timeout = 600000)
     public void testBookKeeperCleanupCommand() throws Exception {
         createLedgerInBookkeeperTestCluster(0);
         System.setIn(new ByteArrayInputStream("yes".getBytes()));
@@ -160,7 +161,7 @@ public class BookkeeperCommandsTest extends BookKeeperClusterTestCase {
         command.deleteCandidates(Collections.singletonList(0L), Collections.singletonList(1L), null);
     }
 
-    @Test
+    @Test(timeout = 600000)
     public void testBookKeeperRecoveryCommand() throws Exception {
         createLedgerInBookkeeperTestCluster(0);
         String commandResult = TestUtils.executeCommand("container recover 0", STATE.get());
@@ -176,7 +177,7 @@ public class BookkeeperCommandsTest extends BookKeeperClusterTestCase {
         AssertExtensions.assertThrows(DataLogNotAvailableException.class, () -> TestUtils.executeCommand("container recover 0", STATE.get()));
     }
 
-    @Test
+    @Test(timeout = 600000)
     public void testRecoveryState() {
         CommandArgs args = new CommandArgs(Collections.singletonList("0"), STATE.get());
         ContainerRecoverCommand.RecoveryState state = new ContainerRecoverCommand(args).new RecoveryState();
