@@ -91,9 +91,8 @@ public class DynamicRestApiTest extends AbstractSystemTest {
     public void listScopes() {
         Service controllerService = Utils.createPravegaControllerService(null);
         List<URI> controllerURIs = controllerService.getServiceDetails();
-        URI controllerRESTUri = controllerURIs.get(0);
-        log.info("{}", controllerURIs.get(0));
-        log.info("{}", controllerURIs.get(1));
+        URI controllerGRPCUri = controllerURIs.get(0);
+        URI controllerRESTUri = controllerURIs.get(1);
         Invocation.Builder builder;
         @Cleanup
         Response response = null;
@@ -117,7 +116,7 @@ public class DynamicRestApiTest extends AbstractSystemTest {
         String responseAsString = null;
 
         ClientConfig clientConfig = ClientConfig.builder()
-                        .controllerURI(controllerRESTUri)
+                        .controllerURI(controllerGRPCUri)
                         .credentials(new DefaultCredentials("1111_aaaa", "admin"))
                         .build();
         // Create a scope.
