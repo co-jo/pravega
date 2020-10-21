@@ -9,7 +9,12 @@
  */
 package io.pravega.test.system;
 
-import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJsonProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.util.Json;
+import javax.ws.rs.Produces;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.ext.Provider;
+import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 
 import io.pravega.client.ClientConfig;
 import io.pravega.client.admin.StreamManager;
@@ -143,5 +148,15 @@ public class DynamicRestApiTest extends AbstractSystemTest {
         assertEquals("Get streams failed.", OK.getStatusCode(), response.getStatus());
         responseAsString = response.readEntity(String.class);
         assertTrue(responseAsString.contains(String.format("\"streamName\":\"%s\"", stream1)));
+    }
+
+    @Provider
+    @Produces({MediaType.APPLICATION_JSON})
+    public class JacksonJsonProvider extends JacksonJaxbJsonProvider {
+        private ObjectMapper commonMapper = Json.mapper();
+
+        public JacksonJsonProvider() {
+            super.setMapper(commonMapper);
+        }
     }
 }
