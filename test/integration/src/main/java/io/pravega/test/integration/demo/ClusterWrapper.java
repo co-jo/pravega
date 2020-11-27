@@ -10,7 +10,7 @@
 package io.pravega.test.integration.demo;
 
 import io.pravega.common.concurrent.ExecutorServiceHelpers;
-import io.pravega.controller.server.security.auth.StrongPasswordProcessor;
+import io.pravega.shared.security.crypto.StrongPasswordProcessor;
 import io.pravega.segmentstore.contracts.StreamSegmentStore;
 import io.pravega.segmentstore.contracts.tables.TableStore;
 import io.pravega.segmentstore.server.host.delegationtoken.TokenVerifierImpl;
@@ -24,7 +24,7 @@ import io.pravega.segmentstore.server.store.ServiceConfig;
 import io.pravega.segmentstore.storage.DurableDataLogException;
 import io.pravega.test.common.TestUtils;
 import io.pravega.test.common.TestingServerStarter;
-import io.pravega.test.integration.utils.PasswordAuthHandlerInput;
+import io.pravega.shared.security.auth.PasswordAuthHandlerInput;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.test.TestingServer;
@@ -38,7 +38,7 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
-import io.pravega.test.integration.utils.PasswordAuthHandlerInput.Entry;
+import io.pravega.shared.security.auth.PasswordAuthHandlerInput.Entry;
 
 /**
  * This class is intended to be used in integration tests for setting up and running a Pravega cluster. It is
@@ -70,6 +70,7 @@ public class ClusterWrapper implements AutoCloseable {
     // Configuration
     private boolean isAuthEnabled;
     private String tokenSigningKeyBasis;
+    private boolean isRGWritesWithReadPermEnabled;
     private int tokenTtlInSeconds;
     private List<PasswordAuthHandlerInput.Entry> passwordAuthHandlerEntries;
     private int containerCount = 4; // default container count
@@ -84,6 +85,13 @@ public class ClusterWrapper implements AutoCloseable {
 
     public ClusterWrapper(boolean isAuthEnabled, String tokenSigningKeyBasis, int tokenTtlInSeconds,
                           List<PasswordAuthHandlerInput.Entry> passwordAuthHandlerEntries, int containerCount) {
+        this(isAuthEnabled, tokenSigningKeyBasis, tokenTtlInSeconds, true,
+                passwordAuthHandlerEntries, containerCount);
+    }
+
+    public ClusterWrapper(boolean isAuthEnabled, String tokenSigningKeyBasis, int tokenTtlInSeconds,
+                          boolean isRGWritesWithReadPermEnabled,
+                          List<PasswordAuthHandlerInput.Entry> passwordAuthHandlerEntries, int containerCount) {
         executor = Executors.newSingleThreadScheduledExecutor();
 
         this.isAuthEnabled = isAuthEnabled;
@@ -97,6 +105,7 @@ public class ClusterWrapper implements AutoCloseable {
                 this.passwordAuthHandlerEntries = passwordAuthHandlerEntries;
             }
         }
+        this.isRGWritesWithReadPermEnabled = isRGWritesWithReadPermEnabled;
         this.containerCount = containerCount;
     }
 
@@ -182,7 +191,7 @@ public class ClusterWrapper implements AutoCloseable {
                 false, true,
                 controllerPort, serviceHost, segmentStorePort, containerCount, -1,
                 isAuthEnabled, passwordInputFilePath,
-                tokenSigningKeyBasis, tokenTtlInSeconds);
+                tokenSigningKeyBasis, this.isRGWritesWithReadPermEnabled, tokenTtlInSeconds);
     }
 
     public String controllerUri() {

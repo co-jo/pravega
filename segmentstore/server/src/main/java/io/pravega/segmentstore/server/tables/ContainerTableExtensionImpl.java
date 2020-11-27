@@ -23,6 +23,7 @@ import io.pravega.segmentstore.contracts.AttributeUpdate;
 import io.pravega.segmentstore.contracts.AttributeUpdateType;
 import io.pravega.segmentstore.contracts.Attributes;
 import io.pravega.segmentstore.contracts.SegmentProperties;
+import io.pravega.segmentstore.contracts.SegmentType;
 import io.pravega.segmentstore.contracts.StreamSegmentTruncatedException;
 import io.pravega.segmentstore.contracts.tables.IteratorArgs;
 import io.pravega.segmentstore.contracts.tables.IteratorItem;
@@ -169,11 +170,11 @@ public class ContainerTableExtensionImpl implements ContainerTableExtension {
     //region TableStore Implementation
 
     @Override
-    public CompletableFuture<Void> createSegment(@NonNull String segmentName, boolean sorted, Duration timeout) {
+    public CompletableFuture<Void> createSegment(@NonNull String segmentName, SegmentType segmentType, Duration timeout) {
         Exceptions.checkNotClosed(this.closed.get(), this);
         val attributes = new HashMap<>(TableAttributes.DEFAULT_VALUES);
         attributes.putAll(DEFAULT_COMPACTION_ATTRIBUTES);
-        if (sorted) {
+        if (segmentType.isSortedTableSegment()) {
             attributes.put(TableAttributes.SORTED, Attributes.BOOLEAN_TRUE);
         }
 
@@ -185,8 +186,9 @@ public class ContainerTableExtensionImpl implements ContainerTableExtension {
                 .entrySet().stream()
                 .map(e -> new AttributeUpdate(e.getKey(), AttributeUpdateType.None, e.getValue()))
                 .collect(Collectors.toList());
-        logRequest("createSegment", segmentName);
-        return this.segmentContainer.createStreamSegment(segmentName, attributeUpdates, timeout);
+        segmentType = SegmentType.builder(segmentType).tableSegment().build(); // Ensure at least a TableSegment type.
+        logRequest("createSegment", segmentName, segmentType);
+        return this.segmentContainer.createStreamSegment(segmentName, segmentType, attributeUpdates, timeout);
     }
 
     @Override
@@ -474,14 +476,16 @@ public class ContainerTableExtensionImpl implements ContainerTableExtension {
                     if (ContainerSortedKeyIndex.isSortedTableSegment(properties)) {
                         throw new UnsupportedOperationException("Unable to use a delta iterator on a sorted TableSegment.");
                     }
+                    if (fromPosition > properties.getLength()) {
+                        throw new IllegalArgumentException("fromPosition can not exceed the length of the TableSegment.");
+                    }
                     long compactionOffset = properties.getAttributes().getOrDefault(TableAttributes.COMPACTION_OFFSET, 0L);
                     // All of the most recent keys will exist beyond the compactionOffset.
                     long startOffset = Math.max(fromPosition, compactionOffset);
                     // We should clear if the starting position may have been truncated out due to compaction.
                     boolean shouldClear = fromPosition < compactionOffset;
                     // Maximum length of the TableSegment we want to read until.
-                    int maxLength = (int) (properties.getLength() - startOffset);
-
+                    int maxBytesToRead = (int) (properties.getLength() - startOffset);
                     TableEntryDeltaIterator.ConvertResult<IteratorItem<T>> converter = item -> {
                         return CompletableFuture.completedFuture(new IteratorItemImpl<T>(
                                 item.getKey().serialize(),
@@ -491,9 +495,9 @@ public class ContainerTableExtensionImpl implements ContainerTableExtension {
                             .segment(segment)
                             .entrySerializer(serializer)
                             .executor(executor)
-                            .maxLength(maxLength)
+                            .maxBytesToRead(maxBytesToRead)
                             .startOffset(startOffset)
-                            .currentBatchOffset(startOffset)
+                            .currentBatchOffset(fromPosition)
                             .fetchTimeout(fetchTimeout)
                             .resultConverter(converter)
                             .shouldClear(shouldClear)

@@ -10,7 +10,7 @@
 package io.pravega.local;
 
 import com.google.common.base.Preconditions;
-import io.pravega.client.stream.impl.Credentials;
+import io.pravega.shared.security.auth.Credentials;
 import io.pravega.client.stream.impl.DefaultCredentials;
 import io.pravega.common.security.ZKTLSUtils;
 import com.google.common.base.Strings;
@@ -62,6 +62,7 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 @ToString
 public class InProcPravegaCluster implements AutoCloseable {
 
+    private static final String LOCALHOST = "localhost";
     private static final int THREADPOOL_SIZE = 20;
     private boolean isInMemStorage;
 
@@ -280,6 +281,8 @@ public class InProcPravegaCluster implements AutoCloseable {
                         .with(ServiceConfig.KEY_FILE, this.keyFile)
                         .with(ServiceConfig.CERT_FILE, this.certFile)
                         .with(ServiceConfig.ENABLE_TLS_RELOAD, this.enableTlsReload)
+                        .with(ServiceConfig.LISTENING_IP_ADDRESS, this.enableTls ? LOCALHOST : "")
+                        .with(ServiceConfig.PUBLISHED_IP_ADDRESS, this.enableTls ? LOCALHOST : "")
                         .with(ServiceConfig.CACHE_POLICY_MAX_TIME, 60)
                         .with(ServiceConfig.CACHE_POLICY_MAX_SIZE, 128 * 1024 * 1024L)
                         .with(ServiceConfig.DATALOG_IMPLEMENTATION, isInMemStorage ?
