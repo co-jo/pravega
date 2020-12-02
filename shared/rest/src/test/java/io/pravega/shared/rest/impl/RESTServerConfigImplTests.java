@@ -7,9 +7,9 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.rest.impl;
+package io.pravega.shared.rest.impl;
 
-import io.pravega.controller.server.rest.RESTServerConfig;
+import io.pravega.shared.rest.RESTServerConfig;
 import org.junit.Test;
 
 import static org.junit.Assert.assertNotNull;

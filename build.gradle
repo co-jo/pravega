@@ -752,6 +752,7 @@ project('controller') {
         compile project(":shared:controller-api")
         compile project(':shared:cluster')
         compile project(":shared:health")
+        compile project(":shared:rest")
         compile project(":client")
         compile project(":shared:metrics")
         runtimeOnly group: 'ch.qos.logback', name: 'logback-classic', version: qosLogbackVersion

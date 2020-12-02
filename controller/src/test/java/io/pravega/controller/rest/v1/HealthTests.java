@@ -13,13 +13,13 @@ import io.pravega.client.ClientConfig;
 import io.pravega.client.connection.impl.ConnectionFactory;
 import io.pravega.client.connection.impl.SocketConnectionFactoryImpl;
 import io.pravega.controller.server.ControllerService;
-import io.pravega.controller.server.rest.RESTServer;
-import io.pravega.controller.server.rest.RESTServerConfig;
 import io.pravega.controller.server.rest.generated.model.HealthDependencies;
 import io.pravega.controller.server.rest.generated.model.HealthDetails;
 import io.pravega.controller.server.rest.generated.model.HealthResult;
 import io.pravega.controller.server.rest.generated.model.HealthStatus;
-import io.pravega.controller.server.rest.impl.RESTServerConfigImpl;
+import io.pravega.shared.rest.impl.RESTServerConfigImpl;
+import io.pravega.shared.rest.RESTServer;
+import io.pravega.shared.rest.RESTServerConfig;
 import io.pravega.shared.health.Health;
 import io.pravega.shared.health.HealthConfig;
 import io.pravega.shared.health.HealthIndicator;
@@ -48,6 +48,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -79,7 +80,7 @@ public class HealthTests {
     private RESTServer restServer;
     private Client client;
     private ConnectionFactory connectionFactory;
-    private HealthService service;
+    private HealthService healthService;
 
     @Before
     public void setup() throws Exception {
@@ -87,26 +88,26 @@ public class HealthTests {
         serverConfig = getServerConfig();
         connectionFactory = new SocketConnectionFactoryImpl(ClientConfig.builder().build());
         healthServiceFactory = new HealthServiceFactory(Optional.ofNullable(getHealthConfig()));
-        service = healthServiceFactory.createHealthService(true);
-        restServer = new RESTServer(null, mockControllerService, null, serverConfig,
-                connectionFactory, service);
+        healthService = healthServiceFactory.createHealthService(true);
+        restServer = new RESTServer(null, serverConfig,
+                connectionFactory, Set.of(healthService, null, mockControllerService));
         restServer.startAsync();
         restServer.awaitRunning();
         client = createJerseyClient();
         // Must provide a HealthIndicator to the HealthComponent(s) defined by the HealthConfig.
-        service.registry().register(new StaticHealthyIndicator(IMPLICIT_INDICATOR), IMPLICIT_COMPONENT);
+        healthService.registry().register(new StaticHealthyIndicator(IMPLICIT_INDICATOR), IMPLICIT_COMPONENT);
     }
 
     @After
     public void teardown() {
-        service.clear();
+        healthService.clear();
         // The ROOT component + the component supplied by our HealthConfig (getHealthConfig).
-        Assert.assertEquals(2, service.registry().contributors().size());
-        Assert.assertEquals(2, service.registry().components().size());
+        Assert.assertEquals(2, healthService.registry().contributors().size());
+        Assert.assertEquals(2, healthService.registry().components().size());
         // Assert that the component does not contain children.
         Assert.assertEquals("The HealthService should report only one component.",
                 1,
-                service.registry().get().contributors().size());
+                healthService.registry().get().contributors().size());
     }
 
     protected Client createJerseyClient() throws Exception {
@@ -149,7 +150,7 @@ public class HealthTests {
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/%s", IMPLICIT_COMPONENT)))
                 .scheme(getURLScheme()).build();
         // Remove the only contributor of 'IMPLICIT_COMPONENT'.
-        service.registry().unregister(IMPLICIT_INDICATOR);
+        healthService.registry().unregister(IMPLICIT_INDICATOR);
 
         Response response = client.target(streamResourceURI).request().buildGet().invoke();
         HealthResult healthResult = response.readEntity(HealthResult.class);
@@ -162,7 +163,7 @@ public class HealthTests {
     @Test
     public void testHealth()  {
         // Register the HealthIndicator.
-        service.registry().register(new StaticHealthyIndicator());
+        healthService.registry().register(new StaticHealthyIndicator());
 
         URI streamResourceURI = UriBuilder.fromUri(getURI("/v1/health"))
                 .scheme(getURLScheme()).build();
@@ -190,7 +191,7 @@ public class HealthTests {
     public void testContributorHealth() {
         // Register the HealthIndicator.
         StaticHealthyIndicator indicator = new StaticHealthyIndicator();
-        service.registry().register(indicator);
+        healthService.registry().register(indicator);
 
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/%s", indicator.getName())))
                 .scheme(getURLScheme()).build();
@@ -207,7 +208,7 @@ public class HealthTests {
     public void testStatus()  {
         // Start with a HealthyIndicator.
         StaticHealthyIndicator healthyIndicator = new StaticHealthyIndicator();
-        service.registry().register(healthyIndicator);
+        healthService.registry().register(healthyIndicator);
 
         URI streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/status"))
                 .scheme(getURLScheme()).build();
@@ -215,14 +216,14 @@ public class HealthTests {
 
         // Adding an unhealthy indicator should change the Status.
         StaticFailingIndicator failingIndicator = new StaticFailingIndicator();
-        service.registry().register(failingIndicator);
+        healthService.registry().register(failingIndicator);
 
         streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/status"))
                 .scheme(getURLScheme()).build();
         assertStatus(streamResourceURI, HealthStatus.DOWN);
 
         // Make sure that even though we have a majority of healthy reports, we still are considered failing.
-        service.registry().register(new StaticHealthyIndicator("sample-healthy-indicator-two"));
+        healthService.registry().register(new StaticHealthyIndicator("sample-healthy-indicator-two"));
         streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/status"))
                 .scheme(getURLScheme()).build();
         assertStatus(streamResourceURI, HealthStatus.DOWN);
@@ -235,7 +236,7 @@ public class HealthTests {
                 builder -> builder.status(Status.DOWN),
                 builder -> builder.status(Status.UNKNOWN)
         )));
-        service.registry().register(dynamicIndicator);
+        healthService.registry().register(dynamicIndicator);
         // Target a specific indicator via a PathParam.
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/status/%s", dynamicIndicator.getName())))
                 .scheme(getURLScheme()).build();
@@ -252,7 +253,7 @@ public class HealthTests {
     public void testReadiness()  {
         // Start with a HealthyIndicator.
         StaticHealthyIndicator healthyIndicator = new StaticHealthyIndicator();
-        service.registry().register(healthyIndicator);
+        healthService.registry().register(healthyIndicator);
 
         URI streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/readiness"))
                 .scheme(getURLScheme()).build();
@@ -260,7 +261,7 @@ public class HealthTests {
 
         // Adding an unhealthy indicator should change the readiness.
         StaticFailingIndicator failingIndicator = new StaticFailingIndicator();
-        service.registry().register(failingIndicator);
+        healthService.registry().register(failingIndicator);
 
         streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/readiness"))
                 .scheme(getURLScheme()).build();
@@ -284,7 +285,7 @@ public class HealthTests {
                     builder.ready(true);
                 }
         )));
-        service.registry().register(dynamicIndicator);
+        healthService.registry().register(dynamicIndicator);
         // Target a specific indicator via a PathParam.
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/readiness/%s", dynamicIndicator.getName())))
                 .scheme(getURLScheme()).build();
@@ -300,7 +301,7 @@ public class HealthTests {
     public void testLiveness()  {
         // Start with a HealthyIndicator.
         StaticHealthyIndicator healthyIndicator = new StaticHealthyIndicator();
-        service.registry().register(healthyIndicator);
+        healthService.registry().register(healthyIndicator);
 
         URI streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/liveness"))
                 .scheme(getURLScheme()).build();
@@ -308,7 +309,7 @@ public class HealthTests {
 
         // Adding an unhealthy indicator should change the readiness.
         StaticFailingIndicator failingIndicator = new StaticFailingIndicator();
-        service.registry().register(failingIndicator);
+        healthService.registry().register(failingIndicator);
 
         streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/liveness"))
                 .scheme(getURLScheme()).build();
@@ -328,7 +329,7 @@ public class HealthTests {
                     builder.alive(true);
                 }
         )));
-        service.registry().register(dynamicIndicator);
+        healthService.registry().register(dynamicIndicator);
         // Target a specific indicator via a PathParam.
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/liveness/%s", dynamicIndicator.getName())))
                 .scheme(getURLScheme()).build();
@@ -342,7 +343,7 @@ public class HealthTests {
     public void testDependencies()  {
         // Start with a HealthyIndicator.
         StaticHealthyIndicator healthyIndicator = new StaticHealthyIndicator();
-        service.registry().register(healthyIndicator);
+        healthService.registry().register(healthyIndicator);
         HealthDependencies  expected = new HealthDependencies();
         expected.add(IMPLICIT_COMPONENT);
         expected.add(healthyIndicator.getName());
@@ -351,7 +352,7 @@ public class HealthTests {
         assertDependencies(streamResourceURI, expected);
         // Add another HealthIndicator.
         StaticFailingIndicator failingIndicator = new StaticFailingIndicator();
-        service.registry().register(failingIndicator);
+        healthService.registry().register(failingIndicator);
         expected.add(failingIndicator.getName());
         assertDependencies(streamResourceURI, expected);
     }
@@ -360,7 +361,7 @@ public class HealthTests {
     public void testContributorDependencies() {
         // Start with a HealthyIndicator.
         StaticHealthyIndicator healthyIndicator = new StaticHealthyIndicator();
-        service.registry().register(healthyIndicator);
+        healthService.registry().register(healthyIndicator);
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/components/%s", healthyIndicator.getName())))
                 .scheme(getURLScheme()).build();
         // HealthIndicators should not be able to accept other HealthIndicators.
@@ -370,7 +371,7 @@ public class HealthTests {
     @Test
     public void testDetails()  {
         // Register the HealthIndicator.
-        service.registry().register(new StaticHealthyIndicator());
+        healthService.registry().register(new StaticHealthyIndicator());
         URI streamResourceURI = UriBuilder.fromUri(getURI("/v1/health/details"))
                 .scheme(getURLScheme()).build();
         Response response = client.target(streamResourceURI).request().buildGet().invoke();
@@ -382,7 +383,7 @@ public class HealthTests {
     public void testContributorDetails() {
         // Register the HealthIndicator.
         StaticHealthyIndicator healthyIndicator = new StaticHealthyIndicator();
-        service.registry().register(healthyIndicator);
+        healthService.registry().register(healthyIndicator);
         URI streamResourceURI = UriBuilder.fromUri(getURI(String.format("/v1/health/details/%s", healthyIndicator.getName())))
                 .scheme(getURLScheme()).build();
         HealthDetails expected = new HealthDetails();
@@ -401,7 +402,7 @@ public class HealthTests {
         Assert.assertEquals(200, response.getStatus());
         Assert.assertEquals("Size of HealthDetails result should match the expected.", expected.size(), details.size());
         details.forEach((key, val) -> {
-            if (expected.get(key) != val) {
+            if (!expected.get(key).equals(val)) {
                 Assert.assertEquals("Unexpected difference in Detail entry.", expected.get(key), val);
             }
         });
