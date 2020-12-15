@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.rest;
+package io.pravega.shared.rest;
 
 import javax.ws.rs.core.Application;
 import java.util.Set;
@@ -15,10 +15,10 @@ import java.util.Set;
 /**
  * Application to register the REST resource classes.
  */
-public class ControllerApplication extends Application {
+public class RESTApplication extends Application {
     private final Set<Object> resource;
 
-    public ControllerApplication(final Set<Object> resources) {
+    public RESTApplication(final Set<Object> resources) {
         super();
         resource = resources;
     }

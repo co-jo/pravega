@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.security.auth.handler;
+package io.pravega.shared.rest.security;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -22,10 +22,10 @@ import io.grpc.Status;
 import io.pravega.auth.AuthConstants;
 import io.pravega.auth.AuthException;
 import io.pravega.auth.AuthHandler;
-import java.security.Principal;
-
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+
+import java.security.Principal;
 
 /**
  * Intercepts gRPC requests and sets up Auth context.
@@ -37,14 +37,14 @@ public class AuthInterceptor implements ServerInterceptor {
     private static final String INTERCEPTOR_KEY_NAME = "InterceptorContext";
 
     /**
-     * Represents the key used for indexing the {@link java.security.Principal} object stored in the current
-     * {@link io.grpc.Context}.
+     * Represents the key used for indexing the {@link Principal} object stored in the current
+     * {@link Context}.
      */
     static final Context.Key<Principal> PRINCIPAL_OBJECT_KEY = Context.key(PRINCIPAL_KEY_NAME);
 
     /**
      * Represents the key used for indexing an object instance of this class stored in the current
-     * {@link io.grpc.Context}.
+     * {@link Context}.
      */
     static final Context.Key<AuthInterceptor> AUTH_INTERCEPTOR_OBJECT_KEY = Context.key(INTERCEPTOR_KEY_NAME);
 

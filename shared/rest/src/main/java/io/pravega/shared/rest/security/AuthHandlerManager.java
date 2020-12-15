@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.security.auth.handler;
+package io.pravega.shared.rest.security;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -15,13 +15,13 @@ import io.grpc.ServerBuilder;
 import io.pravega.auth.AuthException;
 import io.pravega.auth.AuthHandler;
 import io.pravega.auth.AuthenticationException;
-import io.pravega.controller.server.rpc.grpc.GRPCServerConfig;
 import java.security.Principal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
 import javax.annotation.concurrent.GuardedBy;
 
+import io.pravega.auth.ServerConfig;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -32,12 +32,12 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class AuthHandlerManager {
-    private final GRPCServerConfig serverConfig;
+    private final ServerConfig serverConfig;
 
     @GuardedBy("this")
     private final Map<String, AuthHandler> handlerMap;
 
-    public AuthHandlerManager(GRPCServerConfig serverConfig) {
+    public AuthHandlerManager(ServerConfig serverConfig) {
         this.serverConfig = serverConfig;
         this.handlerMap = new HashMap<>();
     }

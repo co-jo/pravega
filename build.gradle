@@ -306,6 +306,18 @@ project ('shared:health') {
     }
 }
 
+project ('shared:rest') {
+    dependencies {
+        compile project(':common')
+        compile project(':client')
+        compile project(":shared:authplugin")
+        compile project(":shared:basic-authplugin")
+        compile project(":shared:security")
+        compile group: 'javax.ws.rs', name: 'javax.ws.rs-api', version: javaxwsrsApiVersion
+        compile group: 'org.glassfish.jersey.containers', name: 'jersey-container-grizzly2-http', version: jerseyVersion
+    }
+}
+
 project('client') {
     dependencies {
         compile project(':common')
@@ -722,6 +734,7 @@ project('controller') {
         compile project(":shared:basic-authplugin")
         compile project(":shared:security")
         compile project(":shared:controller-api")
+        compile project(":shared:rest")
         compile project(':shared:cluster')
         compile project(":client")
         compile project(":shared:metrics")

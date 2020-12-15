@@ -7,11 +7,11 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.rest.impl;
+package io.pravega.shared.rest.impl;
 
 import com.google.common.base.Strings;
 import io.pravega.common.Exceptions;
-import io.pravega.controller.server.rest.RESTServerConfig;
+import io.pravega.shared.rest.RESTServerConfig;
 import lombok.Builder;
 import lombok.Getter;
 

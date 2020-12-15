@@ -7,22 +7,18 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.rest;
+package io.pravega.shared.rest;
 
 import com.google.common.util.concurrent.AbstractIdleService;
 import io.pravega.client.connection.impl.ConnectionFactory;
 import io.pravega.common.LoggerHelpers;
 import io.pravega.common.security.JKSHelper;
-import io.pravega.controller.server.ControllerService;
-import io.pravega.controller.server.eventProcessor.LocalController;
-import io.pravega.controller.server.rest.resources.PingImpl;
-import io.pravega.controller.server.rest.resources.StreamMetadataResourceImpl;
-import io.pravega.controller.server.security.auth.handler.AuthHandlerManager;
 import java.net.URI;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import javax.ws.rs.core.UriBuilder;
+
+import io.pravega.shared.rest.security.AuthHandlerManager;
 import lombok.extern.slf4j.Slf4j;
 import org.glassfish.grizzly.GrizzlyFuture;
 import org.glassfish.grizzly.http.server.HttpServer;
@@ -46,18 +42,17 @@ public class RESTServer extends AbstractIdleService {
     private final ResourceConfig resourceConfig;
     private HttpServer httpServer;
 
-    public RESTServer(LocalController localController, ControllerService controllerService, AuthHandlerManager pravegaAuthManager, RESTServerConfig restServerConfig, ConnectionFactory connectionFactory) {
+    public RESTServer(AuthHandlerManager pravegaAuthManager,
+                      RESTServerConfig restServerConfig,
+                      ConnectionFactory connectionFactory,
+                      Set<Object> resources) {
         this.objectId = "RESTServer";
         this.restServerConfig = restServerConfig;
         final String serverURI = "http://" + restServerConfig.getHost() + "/";
         this.baseUri = UriBuilder.fromUri(serverURI).port(restServerConfig.getPort()).build();
 
-        final Set<Object> resourceObjs = new HashSet<>();
-        resourceObjs.add(new PingImpl());
-        resourceObjs.add(new StreamMetadataResourceImpl(localController, controllerService, pravegaAuthManager, connectionFactory));
-
-        final ControllerApplication controllerApplication = new ControllerApplication(resourceObjs);
-        this.resourceConfig = ResourceConfig.forApplication(controllerApplication);
+        final RESTApplication application = new RESTApplication(resources);
+        this.resourceConfig = ResourceConfig.forApplication(application);
         this.resourceConfig.property(ServerProperties.BV_SEND_ERROR_IN_RESPONSE, true);
 
         // Register the custom JSON parser.

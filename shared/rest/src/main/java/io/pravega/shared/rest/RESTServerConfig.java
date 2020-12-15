@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.server.rest;
+package io.pravega.shared.rest;
 
 /**
  * Configuration of controller REST server.

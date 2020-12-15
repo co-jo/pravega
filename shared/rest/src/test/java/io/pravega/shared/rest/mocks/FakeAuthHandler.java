@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-package io.pravega.controller.mocks;
+package io.pravega.shared.rest.mocks;
 
 import io.pravega.auth.AuthHandler;
 import io.pravega.shared.security.auth.UserPrincipal;
