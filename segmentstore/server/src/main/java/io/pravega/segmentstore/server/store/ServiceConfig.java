@@ -20,6 +20,8 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 
 import io.pravega.segmentstore.storage.StorageLayoutType;
+import io.pravega.shared.rest.RESTServerConfig;
+import io.pravega.shared.rest.impl.RESTServerConfigImpl;
 import lombok.Getter;
 import lombok.SneakyThrows;
 
@@ -45,6 +47,8 @@ public class ServiceConfig {
     public static final Property<Boolean> SECURE_ZK = Property.named("zk.connect.security.enable", false, "secureZK");
     public static final Property<String> ZK_TRUSTSTORE_LOCATION = Property.named("zk.connect.security.tls.trustStore.location", "", "zkTrustStore");
     public static final Property<String> ZK_TRUST_STORE_PASSWORD_PATH = Property.named("zk.connect.security.tls.trustStore.pwd.location", "", "zkTrustStorePasswordPath");
+    public static final Property<String> REST_LISTENING_HOST = Property.named("rest.listener.host", "localhost");
+    public static final Property<Integer> REST_LISTENING_PORT = Property.named("rest.listener.port", 9091);
 
     // Not changing this configuration property (to "cluster.name"), as it is set by Pravega operator, and changing this
     // will require simultaneous changes there. So, we'll change this at a later time, employing strategy like this:
@@ -69,6 +73,7 @@ public class ServiceConfig {
     public static final Property<String> CERT_FILE = Property.named("security.tls.server.certificate.location", "", "certFile");
     public static final Property<String> KEY_FILE = Property.named("security.tls.server.privateKey.location", "", "keyFile");
     public static final Property<Boolean> ENABLE_TLS_RELOAD = Property.named("security.tls.certificate.autoReload.enable", false, "enableTlsReload");
+    public static final Property<String> KEY_PASSWORD_FILE = Property.named("security.tls.server.privateKey.password.location", "");
 
     public static final String COMPONENT_CODE = "pravegaservice";
 
@@ -293,6 +298,8 @@ public class ServiceConfig {
     @Getter
     private final String instanceId;
 
+    @Getter
+    private final RESTServerConfig restServerConfig;
     //endregion
 
     //region Constructor
@@ -356,6 +363,13 @@ public class ServiceConfig {
                 Duration.ofSeconds(cachePolicyMaxTime), Duration.ofSeconds(cachePolicyGenerationTime));
         this.replyWithStackTraceOnError = properties.getBoolean(REPLY_WITH_STACK_TRACE_ON_ERROR);
         this.instanceId = properties.get(INSTANCE_ID);
+        this.restServerConfig = RESTServerConfigImpl.builder()
+                .host(properties.get(REST_LISTENING_HOST))
+                .port(properties.getInt(REST_LISTENING_PORT))
+                .tlsEnabled(properties.getBoolean(ENABLE_TLS))
+                .keyFilePath(properties.get(KEY_FILE))
+                .keyFilePasswordPath(properties.get(KEY_PASSWORD_FILE))
+                .build();
     }
 
     /**

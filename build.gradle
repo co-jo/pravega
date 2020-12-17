@@ -465,7 +465,13 @@ project('segmentstore:server') {
         compile project(':common_server')
         compile project(':segmentstore:contracts')
         compile project(':segmentstore:storage')
+        compile project(':shared:rest')
         compile project(':shared:metrics')
+        compile group: 'javax.servlet', name: 'javax.servlet-api', version: javaxServletApiVersion
+        compile group: 'org.glassfish.jersey.media', name: 'jersey-media-json-jackson', version: jerseyVersion
+        compile(group: 'io.swagger', name : 'swagger-jersey2-jaxrs', version :swaggerJersey2JaxrsVersion) {
+            exclude group: 'com.google.guava', module: 'guava'
+        }
         testCompile project(':test:testcommon')
     }
     javadoc {
@@ -505,6 +511,8 @@ project('segmentstore:server:host') {
         compile project(":shared:authplugin")
         compile project(":shared:security")
         compile project(':shared:cluster')
+        compile project(':shared:health')
+        compile project(':shared:rest')
         compile project(':segmentstore:contracts')
         compile project(':client')
         compile project(':segmentstore:storage')

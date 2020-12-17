@@ -21,16 +21,24 @@ import io.pravega.segmentstore.server.host.delegationtoken.TokenVerifierImpl;
 import io.pravega.segmentstore.server.host.handler.PravegaConnectionListener;
 import io.pravega.segmentstore.server.host.stat.AutoScaleMonitor;
 import io.pravega.segmentstore.server.host.stat.AutoScalerConfig;
+import io.pravega.segmentstore.server.rest.resources.HealthImpl;
 import io.pravega.segmentstore.server.store.ServiceBuilder;
 import io.pravega.segmentstore.server.store.ServiceBuilderConfig;
 import io.pravega.segmentstore.server.store.ServiceConfig;
 import io.pravega.segmentstore.storage.impl.bookkeeper.BookKeeperConfig;
 import io.pravega.segmentstore.storage.impl.bookkeeper.BookKeeperLogFactory;
 import io.pravega.segmentstore.storage.mocks.InMemoryDurableDataLogFactory;
+import io.pravega.shared.health.HealthService;
+import io.pravega.shared.health.HealthServiceFactory;
 import io.pravega.shared.metrics.MetricsConfig;
 import io.pravega.shared.metrics.MetricsProvider;
 import io.pravega.shared.metrics.StatsProvider;
+
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.pravega.shared.rest.RESTServer;
+import io.pravega.shared.rest.security.AuthHandlerManager;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -56,6 +64,9 @@ public final class ServiceStarter {
     private PravegaConnectionListener listener;
     private AutoScaleMonitor autoScaleMonitor;
     private CuratorFramework zkClient;
+    private HealthServiceFactory healthServiceFactory;
+    private HealthService healthService;
+    private RESTServer restServer;
     private boolean closed;
 
     //endregion
@@ -83,10 +94,25 @@ public final class ServiceStarter {
     public void start() throws Exception {
         Exceptions.checkNotClosed(this.closed, this);
 
-        log.info("Initializing metrics provider ...");
+        log.info("Initializing Metrics Provider ...");
         MetricsProvider.initialize(builderConfig.getConfig(MetricsConfig::builder));
         statsProvider = MetricsProvider.getMetricsProvider();
         statsProvider.start();
+
+        log.info("Initializing HealthService ...");
+        healthServiceFactory = new HealthServiceFactory();
+        healthService = healthServiceFactory.createHealthService(true);
+
+        AuthHandlerManager authManager = null;
+        if (serviceConfig.isEnableTls()) {
+            authManager = new AuthHandlerManager(serviceConfig.getRestServerConfig());
+            authManager.initializeAuthHandlers();
+        }
+        log.info("Initializing REST Server ...");
+        restServer = new RESTServer(serviceConfig.getRestServerConfig(), Set.of(new HealthImpl(authManager, healthService)));
+        restServer.startAsync();
+        log.info("Awaiting start of REST Server ...");
+        restServer.awaitRunning();
 
         log.info("Initializing ZooKeeper Client ...");
         this.zkClient = createZKClient();
@@ -130,9 +156,24 @@ public final class ServiceStarter {
             this.serviceBuilder.close();
             log.info("StreamSegmentService shut down.");
 
+            if (this.restServer != null) {
+                restServer.stopAsync();
+                log.info("RESTServer closed.");
+            }
+
             if (this.listener != null) {
                 this.listener.close();
                 log.info("PravegaConnectionListener closed.");
+            }
+
+            if (this.healthServiceFactory != null) {
+                this.healthServiceFactory.close();
+                log.info("HealthServiceFactory closed.");
+            }
+
+            if (this.healthService != null) {
+                this.healthService.close();
+                log.info("HealthService closed.");
             }
 
             if (this.statsProvider != null) {

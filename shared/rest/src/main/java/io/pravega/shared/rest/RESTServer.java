@@ -51,7 +51,6 @@ public class RESTServer extends AbstractIdleService {
 
         // Register the custom JSON parser.
         this.resourceConfig.register(new CustomObjectMapperProvider());
-
     }
 
     /**
