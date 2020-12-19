@@ -306,6 +306,31 @@ project ('shared:health') {
     }
 }
 
+project ('shared:health:rest') {
+    dependencies {
+        compile project(':common')
+        testCompile project(':test:testcommon')
+        compile group: 'ch.qos.logback', name: 'logback-classic', version: qosLogbackVersion
+        compile project(':shared:metrics')
+        compile group: 'javax.ws.rs', name: 'javax.ws.rs-api', version: javaxwsrsApiVersion
+        compile group: 'javax.servlet', name: 'javax.servlet-api', version: javaxServletApiVersion
+        compile project(":shared:authplugin")
+        compile project(":shared:basic-authplugin")
+        compile project(":shared:security")
+        compile group: 'org.glassfish.jersey.media', name: 'jersey-media-json-jackson', version: jerseyVersion
+        compile(group: 'io.swagger', name: 'swagger-jersey2-jaxrs', version: swaggerJersey2JaxrsVersion) {
+            exclude group: 'com.google.guava', module: 'guava'
+        }
+    }
+
+    javadoc {
+        exclude 'io/pravega/shared/*'
+        dependsOn delombok
+        source = delombok.outputDir
+        failOnError = true
+    }
+}
+
 project('client') {
     dependencies {
         compile project(':common')
