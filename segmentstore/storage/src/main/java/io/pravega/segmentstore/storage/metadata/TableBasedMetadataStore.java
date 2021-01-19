@@ -164,12 +164,15 @@ public class TableBasedMetadataStore extends BaseMetadataStore {
                             }, getExecutor())
                             .thenComposeAsync(v2 -> {
                                 // Delete deleted keys.
-                                return this.tableStore.remove(tableName, keysToDelete, timeout);
+                                return this.tableStore.remove(tableName, keysToDelete, timeout)
+                                        .handleAsync((v1, ex) -> {
+                                            if (ex == null) {
+                                                deletedKeyToTxnDataMap.values().stream().forEach(txnData -> txnData.setDbObject(TableKey.NOT_EXISTS));
+                                            }
+                                            return null;
+                                        }, getExecutor());
                             }, getExecutor())
                             .thenRunAsync(() -> {
-                                for (val deletedKey : keysToDelete) {
-                                    deletedKeyToTxnDataMap.get(deletedKey).setDbObject(TableKey.NOT_EXISTS);
-                                }
                                 TABLE_WRITE_LATENCY.reportSuccessEvent(t.getElapsed());
                             }, getExecutor());
                 }, getExecutor())

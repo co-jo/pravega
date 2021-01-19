@@ -76,6 +76,21 @@ public class InMemorySimpleStorageTests extends SimpleStorageTests {
             Assert.assertArrayEquals(expected, output);
         }
 
+        @Override
+        protected void checkData(byte[] expected, byte[] output, int expectedStartIndex, int outputStartIndex, int length) {
+            for (int i = 0; i < length; i++) {
+                Assert.assertEquals(expected[expectedStartIndex + i], output[outputStartIndex + i]);
+            }
+        }
+
+        @Override
+        public void testReadHugeChunks() {
+        }
+
+        @Override
+        public void testConcatHugeChunks(){
+        }
+
         public class InMemorySimpleStorageTestContext extends ChunkedSegmentStorageTests.TestContext {
             InMemorySimpleStorageTestContext(ExecutorService executorService) throws Exception {
                 super(executorService);
