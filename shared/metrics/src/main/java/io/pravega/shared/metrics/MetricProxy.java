@@ -50,6 +50,7 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
     public void close() {
         if (!closed.getAndSet(true)) {
             T i = this.instance.get();
+            log.info("Closing Metric: {}", proxyName);
             if (i != null) {
                 i.close();
                 this.closeCallback.accept(this.proxyName);
