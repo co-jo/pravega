@@ -380,7 +380,6 @@ class SegmentStatsRecorderImpl implements SegmentStatsRecorder {
         void recordWrite(long bytes, int events) {
             this.writeBytes.add(bytes);
             this.writeEvents.add(events);
-            log.info("Recording Write - Bytes: {} Events: {}", bytes, events);
         }
 
         @Override
