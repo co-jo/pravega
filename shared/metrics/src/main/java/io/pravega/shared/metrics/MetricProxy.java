@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import lombok.val;
 
 /**
  * Base class for a Metric Proxy.
@@ -52,14 +53,18 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
             T i = this.instance.get();
             if (i != null) {
                 log.info("Closing Metric: {}", proxyName);
-                log.info("{}", Thread.currentThread().getStackTrace());
+                for (val line : Thread.currentThread().getStackTrace()) {
+                    log.info("{}", line);
+                }
                 i.close();
                 this.closeCallback.accept(this.proxyName);
                 log.info("Instance closed and callback called.");
             }
         } else {
             log.info("Called close() on closed Metric: {}", proxyName);
-            log.info("{}", Thread.currentThread().getStackTrace());
+            for (val line : Thread.currentThread().getStackTrace()) {
+                log.info("{}", line);
+            }
         }
     }
 
