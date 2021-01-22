@@ -155,6 +155,8 @@ public class SimpleCache<KeyT, ValueT> {
             register(e);
         }
 
+        log.info("Key: {} Prev: {}", key, prevValue);
+
         if (prevValue == null) {
             if (tValue != null) {
                 log.info("Possible Data Race.");
