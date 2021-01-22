@@ -18,7 +18,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import lombok.val;
 
 /**
  * Base class for a Metric Proxy.
@@ -52,12 +51,12 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
         if (!closed.getAndSet(true)) {
             T i = this.instance.get();
             if (i != null) {
-                log.info("Closing Metric: {} Instance: ", proxyName, instance.get());
+                log.info("Closing Metric: {} Instance: {}", proxyName, instance);
                 i.close();
                 this.closeCallback.accept(this.proxyName);
             }
         } else {
-            log.info("Already Closed (close()) Metric: {} Instance: ", proxyName, instance.get());
+            log.info("Already Closed (close()) Metric: {} Instance: {}", proxyName, instance);
         }
     }
 
@@ -84,7 +83,7 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
 
     protected T getInstance() {
         if (closed.get()) {
-            log.warn("This MetricProxy ({}) has already been closed. Further updates to this Metric will not be seen by a MeterRegistry.", proxyName);
+            log.warn("This MetricProxy ({}) has already been closed. Further updates to this Metric will not be seen by a MeterRegistry.", instance);
         }
         return this.instance.get();
     }
