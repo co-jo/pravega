@@ -17,9 +17,7 @@ import org.junit.Test;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.*;
 
 /**
  * Tests for basic metric type such as OpStatsLogger, Counter, Gauge and Meter
@@ -131,5 +129,22 @@ public class BasicMetricTest {
         proxy.close();
         assertTrue("The flag has been flipped twice indicating the close() call was called twice.", flag.get());
         assertNotNull("The MetricProxy shoudl continue to hold a reference to the Metric when closed.", proxy.getInstance());
+    }
+
+    @Test
+    public void metricRecreatedAfterClosed() {
+        String counterName = "counterProxy";
+        StatsLoggerProxy proxy = new StatsLoggerProxy(statsLogger);
+        Counter counter = proxy.createCounter(counterName, "key", "value");
+        // Give it a non-default value to assert recreation removes previous state.
+        counter.add(5);
+        counter.close();
+        // Make sure its been deleted.
+        assertNull(MetricRegistryUtils.getCounter(counterName, "key", "value"));
+        // Attempt to recreate it, a new counter should be created, replacing the closed metric.
+        counter = proxy.createCounter(counterName, "key", "value");
+        counter.add(5);
+        log.info("{}", counter.get());
+        assertEquals(5, (int) counter.get());
     }
 }

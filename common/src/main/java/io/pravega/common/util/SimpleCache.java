@@ -134,11 +134,14 @@ public class SimpleCache<KeyT, ValueT> {
         val e = new Entry<KeyT, ValueT>(key, value);
         e.lastAccessTime = this.currentTime.get();
         Entry<KeyT, ValueT> prevValue;
+        Entry<KeyT, ValueT> tValue;
         synchronized (this.lock) {
             prevValue = this.map.put(key, e);
+            tValue = prevValue;
             if (prevValue != null) {
                 // Replacement.
                 if (isExpired(prevValue, e.lastAccessTime)) {
+                    log.info("Key: {} expired.", key);
                     // Expired previous value is equivalent to it not having existed in the first place
                     prevValue.replaced = true; // cleanup will take care of expired entries.
                     prevValue = null;
@@ -153,6 +156,9 @@ public class SimpleCache<KeyT, ValueT> {
         }
 
         if (prevValue == null) {
+            if (tValue != null) {
+                log.info("Possible Data Race.");
+            }
             // We have made an insertion. Clean up if necessary.
             cleanUp();
             return null;

@@ -384,6 +384,7 @@ class SegmentStatsRecorderImpl implements SegmentStatsRecorder {
 
         @Override
         public void close() {
+            log.info("Close() : {}", this.writeBytes);
             this.writeBytes.close();
             this.writeEvents.close();
         }
