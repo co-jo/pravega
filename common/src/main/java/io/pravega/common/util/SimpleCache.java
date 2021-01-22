@@ -300,6 +300,7 @@ public class SimpleCache<KeyT, ValueT> {
         if (this.onExpiration != null) {
             while (lastEvicted != null) {
                 try {
+                    log.info("Expiration Callback: {} {} Least Recent: {}", lastEvicted.key, lastEvicted.value, this.leastRecent);
                     this.onExpiration.accept(lastEvicted.key, lastEvicted.value);
                 } catch (Throwable ex) {
                     // Log and move on. There is no way we can handle this anyway here, and this shouldn't prevent us
