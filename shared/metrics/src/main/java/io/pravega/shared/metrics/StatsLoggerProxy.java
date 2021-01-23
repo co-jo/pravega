@@ -99,8 +99,16 @@ public class StatsLoggerProxy implements StatsLogger {
         MetricsNames.MetricKey keys = metricKey(name, tags);
         return cache.computeIfAbsent(keys.getCacheKey(), key -> {
             T metric = createMetric.apply(keys.getRegistryKey());
-            return createProxy.apply(metric, keys.getCacheKey(), cache::remove);
+            return createProxy.apply(metric, keys.getCacheKey(), okey -> {
+                log.info("Cache::Remove {}", okey);
+                cache.remove(okey);
+            });
         });
+    }
+
+    private void callback(ConcurrentHashMap cache, Object key) {
+        log.info("Cache::Remove {}", key);
+
     }
 
     private interface ProxyCreator<T1, R> {
