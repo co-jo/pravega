@@ -98,7 +98,7 @@ class SegmentStatsRecorderImpl implements SegmentStatsRecorder {
         this.executor = executor;
         this.pendingCacheLoads = Collections.synchronizedSet(new HashSet<>());
 
-        this.cache = new SimpleCache<>(MAX_CACHE_SIZE, expiryDuration, (segment, context) -> context.close());
+        this.cache = new SimpleCache<>(MAX_CACHE_SIZE, expiryDuration, null);
 
         this.cacheCleanup = executor.scheduleAtFixedRate(cache::cleanUp, CACHE_CLEANUP_INTERVAL.toMillis(), 2, TimeUnit.MINUTES);
         this.reportingDuration = reportingDuration;
