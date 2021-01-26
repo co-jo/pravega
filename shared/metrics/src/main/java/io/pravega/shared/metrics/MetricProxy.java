@@ -54,6 +54,8 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
                 i.close();
                 this.closeCallback.accept(this.proxyName);
             }
+        } else {
+            log.info("Attempting to re-close metric: {}", proxyName);
         }
     }
 
@@ -79,6 +81,9 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
     }
 
     protected T getInstance() {
+        if (closed.get()) {
+            log.info("Accessing closed metric: {}", proxyName);
+        }
         return this.instance.get();
     }
 }
