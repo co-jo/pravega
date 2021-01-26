@@ -56,7 +56,7 @@ import static io.pravega.shared.MetricsTags.segmentTags;
 @Slf4j
 class SegmentStatsRecorderImpl implements SegmentStatsRecorder {
     private static final Duration DEFAULT_REPORTING_DURATION = Duration.ofMinutes(2);
-    private static final Duration DEFAULT_EXPIRY_DURATION = Duration.ofMinutes(5);
+    private static final Duration DEFAULT_EXPIRY_DURATION = Duration.ofMinutes(20);
     private static final Duration CACHE_CLEANUP_INTERVAL = Duration.ofMinutes(2);
     private static final int MAX_CACHE_SIZE = 100000; // 100k segment records in memory.
     // At 100k * with each aggregate approximately ~80 bytes = 8 Mb of memory foot print.
