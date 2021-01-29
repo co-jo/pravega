@@ -19,6 +19,8 @@ import io.pravega.client.stream.EventWriterConfig;
 import io.pravega.client.stream.RetentionPolicy;
 import io.pravega.client.stream.ScalingPolicy;
 import io.pravega.client.stream.StreamConfiguration;
+import io.pravega.client.stream.ReaderGroupConfig;
+import io.pravega.client.stream.Stream;
 import io.pravega.client.control.impl.ModelHelper;
 import io.pravega.common.Exceptions;
 import io.pravega.common.Timer;
@@ -41,6 +43,8 @@ import io.pravega.controller.store.stream.OperationContext;
 import io.pravega.controller.store.stream.State;
 import io.pravega.controller.store.stream.StoreException;
 import io.pravega.controller.store.stream.StreamMetadataStore;
+import io.pravega.controller.store.stream.RGOperationContext;
+import io.pravega.controller.store.stream.ReaderGroupState;
 import io.pravega.controller.store.VersionedMetadata;
 import io.pravega.controller.store.stream.records.EpochRecord;
 import io.pravega.controller.store.stream.records.EpochTransitionRecord;
@@ -50,6 +54,8 @@ import io.pravega.controller.store.stream.records.StreamCutRecord;
 import io.pravega.controller.store.stream.records.StreamCutReferenceRecord;
 import io.pravega.controller.store.stream.records.StreamSegmentRecord;
 import io.pravega.controller.store.stream.records.StreamTruncationRecord;
+import io.pravega.controller.store.stream.records.ReaderGroupConfigRecord;
+import io.pravega.shared.controller.event.RGStreamCutRecord;
 import io.pravega.controller.store.task.LockFailedException;
 import io.pravega.controller.store.task.Resource;
 import io.pravega.controller.store.task.TaskMetadataStore;
@@ -60,10 +66,15 @@ import io.pravega.controller.stream.api.grpc.v1.Controller.ScaleResponse;
 import io.pravega.controller.stream.api.grpc.v1.Controller.ScaleStatusResponse;
 import io.pravega.controller.stream.api.grpc.v1.Controller.SegmentRange;
 import io.pravega.controller.stream.api.grpc.v1.Controller.UpdateStreamStatus;
-import io.pravega.controller.stream.api.grpc.v1.Controller.AddSubscriberStatus;
-import io.pravega.controller.stream.api.grpc.v1.Controller.DeleteSubscriberStatus;
+import io.pravega.controller.stream.api.grpc.v1.Controller.CreateReaderGroupStatus;
+import io.pravega.controller.stream.api.grpc.v1.Controller.DeleteReaderGroupStatus;
+import io.pravega.controller.stream.api.grpc.v1.Controller.UpdateReaderGroupResponse;
 import io.pravega.controller.stream.api.grpc.v1.Controller.UpdateSubscriberStatus;
 import io.pravega.controller.stream.api.grpc.v1.Controller.SubscribersResponse;
+import io.pravega.controller.stream.api.grpc.v1.Controller.ReaderGroupConfigResponse;
+import io.pravega.controller.stream.api.grpc.v1.Controller.ReaderGroupConfiguration;
+import io.pravega.controller.stream.api.grpc.v1.Controller.StreamCut;
+import io.pravega.controller.stream.api.grpc.v1.Controller.StreamInfo;
 import io.pravega.controller.task.EventHelper;
 import io.pravega.controller.task.Task;
 import io.pravega.controller.task.TaskBase;
@@ -76,6 +87,9 @@ import io.pravega.shared.controller.event.ScaleOpEvent;
 import io.pravega.shared.controller.event.SealStreamEvent;
 import io.pravega.shared.controller.event.TruncateStreamEvent;
 import io.pravega.shared.controller.event.UpdateStreamEvent;
+import io.pravega.shared.controller.event.CreateReaderGroupEvent;
+import io.pravega.shared.controller.event.DeleteReaderGroupEvent;
+import io.pravega.shared.controller.event.UpdateReaderGroupEvent;
 import io.pravega.shared.protocol.netty.WireCommands;
 import java.io.Serializable;
 import java.time.Duration;
@@ -88,7 +102,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.Iterator;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -116,6 +132,7 @@ import static io.pravega.controller.task.Stream.TaskStepsRetryHelper.withRetries
 public class StreamMetadataTasks extends TaskBase {
     private static final TagLogger log = new TagLogger(LoggerFactory.getLogger(StreamMetadataTasks.class));
     private static final int SUBSCRIBER_OPERATION_RETRIES = 10;
+    private static final int READER_GROUP_OPERATION_MAX_RETRIES = 10;
 
     private final AtomicLong retentionFrequencyMillis;
     
@@ -186,22 +203,53 @@ public class StreamMetadataTasks extends TaskBase {
                 ((AbstractStreamMetadataStore) this.streamMetadataStore).getHostTaskIndex());
     }
 
-
     /**
-     * Method to create stream with retries for lock failed exception.
+     * Method to create a State Synchronizer Stream for a Reader Group.
      *
      * @param scope           scope.
-     * @param stream          stream name.
+     * @param stream          State Synchronizer stream name.
      * @param config          stream configuration.
      * @param createTimestamp creation timestamp.
      * @param numOfRetries    number of retries for LockFailedException
      * @return CompletableFuture which when completed will have creation status for the stream.
      */
+    public CompletableFuture<CreateStreamStatus.Status> createRGStream(String scope, String stream, StreamConfiguration config,
+                                                                                       long createTimestamp, int numOfRetries) {
+        Preconditions.checkNotNull(config, "streamConfig");
+        Preconditions.checkArgument(createTimestamp >= 0);
+        NameUtils.validateStreamName(stream);
+
+        return Futures.exceptionallyExpecting(streamMetadataStore.getState(scope, stream, true, null, executor),
+                e -> Exceptions.unwrap(e) instanceof StoreException.DataNotFoundException, State.UNKNOWN)
+                .thenCompose(state -> {
+                    log.debug("CREATING RG Stream...{}", state.toString());
+                    if (state.equals(State.UNKNOWN) || state.equals(State.CREATING)) {
+                        return createStreamRetryOnLockFailure(scope,
+                                stream,
+                                config,
+                                createTimestamp, 10);
+                    } else {
+                        return CompletableFuture.completedFuture(CreateStreamStatus.Status.STREAM_EXISTS);
+                    }
+                });
+    }
+
+    /**
+    * Method to create stream with retries for lock failed exception.
+    *
+    * @param scope           scope.
+    * @param stream          stream name.
+    * @param config          stream configuration.
+    * @param createTimestamp creation timestamp.
+    * @param numOfRetries    number of retries for LockFailedException
+    * @return CompletableFuture which when completed will have creation status for the stream.
+    */
     public CompletableFuture<CreateStreamStatus.Status> createStreamRetryOnLockFailure(String scope, String stream, StreamConfiguration config,
                                                                                        long createTimestamp, int numOfRetries) {
         return RetryHelper.withRetriesAsync(() ->  createStream(scope, stream, config, createTimestamp),
                 e -> Exceptions.unwrap(e) instanceof LockFailedException, numOfRetries, executor)
                 .exceptionally(e -> {
+                    log.warn("createStream threw exception {}", e.getCause().getMessage());
                     Throwable unwrap = Exceptions.unwrap(e);
                     if (unwrap instanceof RetriesExhaustedException) {
                         throw new CompletionException(unwrap.getCause());
@@ -210,7 +258,380 @@ public class StreamMetadataTasks extends TaskBase {
                     }
                 });
     }
-    
+
+    /**
+     * Get Reader Group Configuration.
+     *
+     * @param scope  Reader Group scope.
+     * @param rgName Reader Group name.
+     * @param contextOpt Reader Group context.
+     * @return creation status.
+     */
+    public CompletableFuture<ReaderGroupConfigResponse> getReaderGroupConfig(final String scope, final String rgName,
+                                                                             RGOperationContext contextOpt) {
+        final long requestId = requestTracker.getRequestIdFor("getReaderGroupConfig", scope, rgName);
+        return RetryHelper.withRetriesAsync(() -> {
+          // 1. check if RG with this name exists...
+          return streamMetadataStore.checkReaderGroupExists(scope, rgName)
+             .thenCompose(exists -> {
+               if (!exists) {
+                  return CompletableFuture.completedFuture(ReaderGroupConfigResponse.newBuilder()
+                                    .setConfig(ReaderGroupConfiguration.getDefaultInstance())
+                                    .setStatus(ReaderGroupConfigResponse.Status.RG_NOT_FOUND).build());
+               }
+               final RGOperationContext context = contextOpt == null ? streamMetadataStore.createRGContext(scope, rgName) : contextOpt;
+               return streamMetadataStore.getReaderGroupId(scope, rgName)
+                    .thenCompose(rgId -> streamMetadataStore.getReaderGroupConfigRecord(scope, rgName, context, executor)
+                            .thenApply(configRecord -> ReaderGroupConfigResponse.newBuilder()
+                                .setConfig(getRGConfigurationFromRecord(scope, rgName, configRecord.getObject(), rgId.toString()))
+                                .setStatus(ReaderGroupConfigResponse.Status.SUCCESS).build()));
+       });
+      }, e -> Exceptions.unwrap(e) instanceof RetryableException, READER_GROUP_OPERATION_MAX_RETRIES, executor);
+    }
+
+    private ReaderGroupConfiguration getRGConfigurationFromRecord(final String scope, final String rgName,
+                                                                  final ReaderGroupConfigRecord record, final String readerGroupId) {
+        List<StreamCut> startStreamCuts = record.getStartingStreamCuts().entrySet().stream()
+                .map(e -> StreamCut.newBuilder()
+                        .setStreamInfo(StreamInfo.newBuilder().setStream(Stream.of(e.getKey()).getStreamName())
+                                .setScope(Stream.of(e.getKey()).getScope()).build())
+                        .putAllCut(e.getValue().getStreamCut()).build()).collect(Collectors.toList());
+        List<StreamCut> endStreamCuts = record.getEndingStreamCuts().entrySet().stream()
+                .map(e -> StreamCut.newBuilder()
+                        .setStreamInfo(StreamInfo.newBuilder().setStream(Stream.of(e.getKey()).getStreamName())
+                                                              .setScope(Stream.of(e.getKey()).getScope()).build())
+                        .putAllCut(e.getValue().getStreamCut()).build()).collect(Collectors.toList());
+        return ReaderGroupConfiguration.newBuilder().setScope(scope).setReaderGroupName(rgName)
+          .setGroupRefreshTimeMillis(record.getGroupRefreshTimeMillis())
+          .setAutomaticCheckpointIntervalMillis(record.getAutomaticCheckpointIntervalMillis())
+          .setMaxOutstandingCheckpointRequest(record.getMaxOutstandingCheckpointRequest())
+          .setRetentionType(record.getRetentionTypeOrdinal())
+          .setGeneration(record.getGeneration())
+          .addAllStartingStreamCuts(startStreamCuts)
+          .addAllEndingStreamCuts(endStreamCuts)
+          .setReaderGroupId(readerGroupId)
+          .build();
+    }
+
+    /**
+     * Create Reader Group.
+     *
+     * @param scope           Reader Group scope.
+     * @param rgName          Reader Group name.
+     * @param config          Reader Group config.
+     * @param createTimestamp Reader Group creation timestamp.
+     * @return creation status.
+     */
+    public CompletableFuture<CreateReaderGroupStatus.Status> createReaderGroup(final String scope, final String rgName,
+                                                                               final ReaderGroupConfig config, long createTimestamp) {
+    final long requestId = requestTracker.getRequestIdFor("createReaderGroup", scope, rgName);
+    return RetryHelper.withRetriesAsync(() -> {
+      // 1. check if scope with this name exists...
+      return streamMetadataStore.checkScopeExists(scope)
+         .thenCompose(exists -> {
+         if (!exists) {
+                  return CompletableFuture.completedFuture(CreateReaderGroupStatus.Status.SCOPE_NOT_FOUND);
+         }
+         //2. check state of the ReaderGroup, if found
+         return isRGCreationComplete(scope, rgName)
+                 .thenCompose(complete -> {
+                     if (!complete) {
+                         Map<String, RGStreamCutRecord> startStreamCuts = config.getStartingStreamCuts().entrySet().stream()
+                                 .collect(Collectors.toMap(e -> e.getKey().getScopedName(),
+                                         e -> new RGStreamCutRecord(ImmutableMap.copyOf(ModelHelper.getStreamCutMap(e.getValue())))));
+                         Map<String, RGStreamCutRecord> endStreamCuts = config.getEndingStreamCuts().entrySet().stream()
+                                 .collect(Collectors.toMap(e -> e.getKey().getScopedName(),
+                                         e -> new RGStreamCutRecord(ImmutableMap.copyOf(ModelHelper.getStreamCutMap(e.getValue())))));
+                         CreateReaderGroupEvent event = new CreateReaderGroupEvent(requestId, scope, rgName, config.getGroupRefreshTimeMillis(),
+                                 config.getAutomaticCheckpointIntervalMillis(), config.getMaxOutstandingCheckpointRequest(),
+                                 config.getRetentionType().ordinal(), config.getGeneration(), config.getReaderGroupId(),
+                                 startStreamCuts, endStreamCuts, createTimestamp);
+
+                         //3. Create Reader Group Metadata and submit event
+                         return eventHelper.addIndexAndSubmitTask(event,
+                                 () -> streamMetadataStore.addReaderGroupToScope(scope, rgName, config.getReaderGroupId()))
+                                         .thenCompose(x -> eventHelper.checkDone(() -> isRGCreated(scope, rgName, executor))
+                                                 .thenApply(done -> CreateReaderGroupStatus.Status.SUCCESS));
+                     }
+                     return CompletableFuture.completedFuture(CreateReaderGroupStatus.Status.SUCCESS);
+                 });
+         });
+        }, e -> Exceptions.unwrap(e) instanceof RetryableException, READER_GROUP_OPERATION_MAX_RETRIES, executor);
+    }
+
+    public CompletableFuture<Boolean> isRGCreationComplete(String scope, String rgName) {
+        return Futures.exceptionallyExpecting(streamMetadataStore.getReaderGroupState(scope, rgName, true, null, executor),
+        e -> Exceptions.unwrap(e) instanceof StoreException.DataNotFoundException, ReaderGroupState.UNKNOWN)
+        .thenCompose(state -> {
+        if (state.equals(ReaderGroupState.UNKNOWN) || state.equals(ReaderGroupState.CREATING)) {
+            return CompletableFuture.completedFuture(Boolean.FALSE);
+        }
+        return CompletableFuture.completedFuture(Boolean.TRUE);
+        });
+    }
+
+    public CompletableFuture<CreateReaderGroupStatus.Status> createReaderGroupTasks(String scope, String readerGroup,
+                                                                             ReaderGroupConfig config, long createTimestamp) {
+        final RGOperationContext context = streamMetadataStore.createRGContext(scope, readerGroup);
+        return streamMetadataStore.createReaderGroup(scope, readerGroup, config, createTimestamp, context, executor)
+                .thenCompose(v -> {
+                    if (!ReaderGroupConfig.StreamDataRetention.NONE.equals(config.getRetentionType())) {
+                        String scopedRGName = NameUtils.getScopedReaderGroupName(scope, readerGroup);
+                        // update Stream metadata tables, only if RG is a Subscriber
+                        Iterator<String> streamIter = config.getStartingStreamCuts().keySet().stream()
+                                .map(s -> s.getScopedName()).iterator();
+                        return Futures.loop(() -> streamIter.hasNext(), () -> {
+                            Stream stream = Stream.of(streamIter.next());
+                            return streamMetadataStore.addSubscriber(stream.getScope(),
+                                    stream.getStreamName(), scopedRGName, config.getGeneration(), null, executor);
+                        }, executor);
+                    }
+                    return CompletableFuture.completedFuture(null);
+                }).thenCompose(x -> createRGStream(scope, NameUtils.getStreamForReaderGroup(readerGroup),
+                StreamConfiguration.builder().scalingPolicy(ScalingPolicy.fixed(1)).build(),
+                System.currentTimeMillis(), 10)
+                .thenCompose(createStatus -> {
+                    if (createStatus.equals(Controller.CreateStreamStatus.Status.STREAM_EXISTS)
+                            || createStatus.equals(Controller.CreateStreamStatus.Status.SUCCESS)) {
+                        return streamMetadataStore.getVersionedReaderGroupState(scope, readerGroup, true, null, executor)
+                                .thenCompose(newstate -> streamMetadataStore.updateReaderGroupVersionedState(scope, readerGroup,
+                                        ReaderGroupState.ACTIVE, newstate, context, executor))
+                                .thenApply(v1 -> CreateReaderGroupStatus.Status.SUCCESS);
+                    }
+                    return Futures.failedFuture(new IllegalStateException(String.format("Error creating StateSynchronizer Stream for Reader Group %s: %s",
+                            readerGroup, createStatus.toString())));
+                })).exceptionally(ex -> {
+            log.debug("RG Stream Create failed with error: " + ex.getMessage());
+            Throwable cause = Exceptions.unwrap(ex);
+            throw new CompletionException(cause);
+        });
+    }
+
+    public CompletableFuture<CreateReaderGroupStatus.Status> createReaderGroupInternal(String scope, String rgName,
+                                                                                       ReaderGroupConfig config, final long createTimestamp) {
+        Preconditions.checkNotNull(scope, "ReaderGroup scope is null");
+        Preconditions.checkNotNull(rgName, "ReaderGroup name is null");
+        Preconditions.checkNotNull(config, "ReaderGroup config is null");
+        Preconditions.checkArgument(createTimestamp >= 0);
+        try {
+            NameUtils.validateReaderGroupName(rgName);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            log.warn("Create ReaderGroup failed due to invalid name {}", rgName);
+            return CompletableFuture.completedFuture(CreateReaderGroupStatus.Status.INVALID_RG_NAME);
+        }
+        return RetryHelper.withRetriesAsync(() -> {
+            // 1. check if scope with this name exists...
+            return streamMetadataStore.checkScopeExists(scope)
+                    .thenCompose(exists -> {
+                        if (!exists) {
+                            return CompletableFuture.completedFuture(CreateReaderGroupStatus.Status.SCOPE_NOT_FOUND);
+                        }
+                        //2. check state of the ReaderGroup
+                        return isRGCreationComplete(scope, rgName)
+                                .thenCompose(complete -> {
+                                    if (!complete) {
+                                        return streamMetadataStore.addReaderGroupToScope(scope, rgName, config.getReaderGroupId())
+                                                .thenCompose(x -> createReaderGroupTasks(scope, rgName, config, createTimestamp))
+                                                .thenApply(y -> CreateReaderGroupStatus.Status.SUCCESS);
+                                    }
+                                    return CompletableFuture.completedFuture(CreateReaderGroupStatus.Status.SUCCESS);
+                                });
+                    });
+        }, e -> Exceptions.unwrap(e) instanceof RetryableException, 10, executor);
+    }
+
+    private CompletableFuture<Boolean> isRGCreated(String scope, String rgName, Executor executor) {
+        return Futures.exceptionallyExpecting(streamMetadataStore.getReaderGroupState(scope, rgName, true, null, executor),
+                e -> Exceptions.unwrap(e) instanceof StoreException.DataNotFoundException, ReaderGroupState.UNKNOWN)
+                .thenApply(state -> {
+                    log.debug("ReaderGroup State is {}", state.toString());
+                    return ReaderGroupState.ACTIVE.equals(state);
+                });
+    }
+
+
+    /**
+     * Update Reader Group Configuration.
+     *
+     * @param scope           Reader Group scope.
+     * @param rgName          Reader Group name.
+     * @param config          New Reader Group config.
+     * @param contextOpt      Reader Group context.
+     * @return updation status.
+     */
+    public CompletableFuture<UpdateReaderGroupResponse> updateReaderGroup(final String scope, final String rgName,
+                                                                               final ReaderGroupConfig config, RGOperationContext contextOpt) {
+        final RGOperationContext context = contextOpt == null ? streamMetadataStore.createRGContext(scope, rgName) : contextOpt;
+        final long requestId = requestTracker.getRequestIdFor("updateReaderGroup", scope, rgName);
+        return RetryHelper.withRetriesAsync(() -> {
+            // 1. check if Reader Group exists...
+            return streamMetadataStore.checkReaderGroupExists(scope, rgName)
+               .thenCompose(exists -> {
+               if (!exists) {
+                   UpdateReaderGroupResponse response = UpdateReaderGroupResponse.newBuilder()
+                           .setStatus(UpdateReaderGroupResponse.Status.RG_NOT_FOUND)
+                           .setGeneration(config.getGeneration()).build();
+                  return CompletableFuture.completedFuture(response);
+               }
+               //2. check for generation && ID match with existing config
+               return streamMetadataStore.getReaderGroupConfigRecord(scope, rgName, context, executor)
+                      .thenCompose(rgConfigRecord -> {
+                        if (rgConfigRecord.getObject().getGeneration() != config.getGeneration()) {
+                            UpdateReaderGroupResponse response = UpdateReaderGroupResponse.newBuilder()
+                                    .setStatus(UpdateReaderGroupResponse.Status.INVALID_CONFIG)
+                                    .setGeneration(config.getGeneration()).build();
+                            return CompletableFuture.completedFuture(response);
+                        }
+                        if (!rgConfigRecord.getObject().isUpdating()) {
+                          return streamMetadataStore.getReaderGroupId(scope, rgName)
+                             .thenCompose(rgId -> {
+                             if (!config.getReaderGroupId().equals(rgId)) {
+                                 UpdateReaderGroupResponse response = UpdateReaderGroupResponse.newBuilder()
+                                         .setStatus(UpdateReaderGroupResponse.Status.INVALID_CONFIG)
+                                         .setGeneration(config.getGeneration()).build();
+                                 return CompletableFuture.completedFuture(response);
+                             }
+                             ImmutableSet<String> removeStreams = getStreamsToBeUnsubscribed(rgConfigRecord.getObject(), config);
+                             boolean isTransition = isTransitionToOrFromSubscriber(rgConfigRecord.getObject(), config);
+                             UpdateReaderGroupEvent event = new UpdateReaderGroupEvent(scope, rgName, requestId, rgId,
+                                                                 rgConfigRecord.getObject().getGeneration() + 1, isTransition, removeStreams);
+                             //3. Create Reader Group Metadata and submit event
+                             return eventHelper.addIndexAndSubmitTask(event,
+                                    () -> streamMetadataStore.startRGConfigUpdate(scope, rgName, config, null, executor))
+                                          .thenCompose(x -> eventHelper.checkDone(() -> isRGUpdated(scope, rgName, executor))
+                                          .thenCompose(y -> streamMetadataStore.getReaderGroupConfigRecord(scope, rgName, context, executor)
+                                          .thenApply(configRecord -> {
+                                              UpdateReaderGroupResponse response = UpdateReaderGroupResponse.newBuilder()
+                                                      .setStatus(UpdateReaderGroupResponse.Status.SUCCESS)
+                                                      .setGeneration(configRecord.getObject().getGeneration()).build();
+                                              return response;
+                                          })));
+                             });
+                        } else {
+                          log.warn("Reader group update failed as another update is in progress.");
+                            UpdateReaderGroupResponse response = UpdateReaderGroupResponse.newBuilder()
+                                    .setStatus(UpdateReaderGroupResponse.Status.FAILURE)
+                                    .setGeneration(config.getGeneration()).build();
+                          return CompletableFuture.completedFuture(response);
+                        }
+                      });
+               });
+        }, e -> Exceptions.unwrap(e) instanceof RetryableException, READER_GROUP_OPERATION_MAX_RETRIES, executor);
+    }
+
+    private boolean isTransitionToOrFromSubscriber(final ReaderGroupConfigRecord currentConfig,
+                                                   final ReaderGroupConfig newConfig) {
+        if (ReaderGroupConfig.StreamDataRetention.NONE
+                .equals(ReaderGroupConfig.StreamDataRetention.values()[currentConfig.getRetentionTypeOrdinal()])
+                && ReaderGroupConfig.StreamDataRetention.NONE.equals(newConfig.getRetentionType())) {
+            // if both existing and new configs have StreamDataRetention.NONE
+            // we're not transitioning this ReaderGroup from Subscriber to non-Subscriber or vice versa
+            return false;
+        }
+        return true;
+    }
+
+    private ImmutableSet<String> getStreamsToBeUnsubscribed(final ReaderGroupConfigRecord currentConfig,
+                                                            final ReaderGroupConfig newConfig) {
+        if (isNonSubscriberToSubscriberTransition(currentConfig, newConfig)) {
+            // changing from a non-subscriber to subscriber reader group
+            // so we just need to add RG as subscriber to Streams in the new config
+            return ImmutableSet.of();
+        } else if (isSubscriberToNonSubscriberTransition(currentConfig, newConfig)) {
+            // changing from subscriber to non-subscriber
+            // unsubscribe from all streams from current config
+            ImmutableSet.Builder<String> streamsToBeUnsubscribedBuilder = ImmutableSet.builder();
+            currentConfig.getStartingStreamCuts().keySet().forEach(s -> streamsToBeUnsubscribedBuilder.add(s));
+            return streamsToBeUnsubscribedBuilder.build();
+        } else {
+            final Set<String> currentConfigStreams = currentConfig.getStartingStreamCuts().keySet();
+            final Set<String> newConfigStreams = newConfig.getStartingStreamCuts().keySet().stream().map(s -> s.getScopedName()).collect(Collectors.toSet());
+            ImmutableSet.Builder<String> setBuilder = ImmutableSet.builder();
+            currentConfigStreams.stream()
+                    .filter(s -> !newConfigStreams.contains(s)).forEach(s -> setBuilder.add(s));
+            return setBuilder.build();
+        }
+
+    }
+
+    private boolean isNonSubscriberToSubscriberTransition(final ReaderGroupConfigRecord currentConfig, final ReaderGroupConfig newConfig) {
+        if (ReaderGroupConfig.StreamDataRetention.NONE
+                .equals(ReaderGroupConfig.StreamDataRetention.values()[currentConfig.getRetentionTypeOrdinal()])
+                && (!ReaderGroupConfig.StreamDataRetention.NONE.equals(newConfig.getRetentionType()))) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isSubscriberToNonSubscriberTransition(final ReaderGroupConfigRecord currentConfig, final ReaderGroupConfig newConfig) {
+        if (!ReaderGroupConfig.StreamDataRetention.NONE
+                .equals(ReaderGroupConfig.StreamDataRetention.values()[currentConfig.getRetentionTypeOrdinal()])
+                && (ReaderGroupConfig.StreamDataRetention.NONE.equals(newConfig.getRetentionType()))) {
+            return true;
+        }
+        return false;
+    }
+
+    private CompletableFuture<Boolean> isRGUpdated(String scope, String rgName, Executor executor) {
+            return streamMetadataStore.getReaderGroupConfigRecord(scope, rgName, null, executor)
+                    .thenCompose(rgConfigRecord -> {
+                        log.debug("Is ReaderGroup Config update complete ? {}", rgConfigRecord.getObject().isUpdating());
+                        return CompletableFuture.completedFuture(!rgConfigRecord.getObject().isUpdating());
+                   });
+    }
+
+    /**
+     * Delete Reader Group.
+     *
+     * @param scope           Reader Group scope.
+     * @param rgName          Reader Group name.
+     * @param readerGroupId   Reader Group unique identifier.
+     * @param generation      Reader Group generation.
+     * @param contextOpt      Reader Group context.
+     * @return deletion status.
+     */
+    public CompletableFuture<DeleteReaderGroupStatus.Status> deleteReaderGroup(final String scope, final String rgName,
+                                                                               final String readerGroupId,
+                                                                               final long generation,
+                                                                               RGOperationContext contextOpt) {
+        final RGOperationContext context = contextOpt == null ? streamMetadataStore.createRGContext(scope, rgName) : contextOpt;
+        final long requestId = requestTracker.getRequestIdFor("deleteReaderGroup", scope, rgName);
+        return RetryHelper.withRetriesAsync(() ->
+                streamMetadataStore.checkReaderGroupExists(scope, rgName)
+                   .thenCompose(exists -> {
+                    if (!exists) {
+                       return CompletableFuture.completedFuture(DeleteReaderGroupStatus.Status.RG_NOT_FOUND);
+                    }
+                    return streamMetadataStore.getReaderGroupId(scope, rgName)
+                           .thenCompose(rgId -> {
+                               if (!rgId.equals(UUID.fromString(readerGroupId))) {
+                                   return CompletableFuture.completedFuture(DeleteReaderGroupStatus.Status.RG_NOT_FOUND);
+                               }
+                               return streamMetadataStore.getReaderGroupConfigRecord(scope, rgName, context, executor)
+                                       .thenCompose(configRecord -> {
+                                           if (configRecord.getObject().getGeneration() != generation) {
+                                               return CompletableFuture.completedFuture(DeleteReaderGroupStatus.Status.FAILURE);
+                                           }
+                                           return streamMetadataStore.getVersionedReaderGroupState(scope, rgName, true, context, executor)
+                                                   .thenCompose(versionedState -> eventHelper.addIndexAndSubmitTask(new DeleteReaderGroupEvent(scope, rgName, requestId, rgId, generation),
+                                                           () -> startReaderGroupDelete(scope, rgName, versionedState, context))
+                                                           .thenCompose(x -> eventHelper.checkDone(() -> isRGDeleted(scope, rgName))
+                                                                   .thenApply(done -> DeleteReaderGroupStatus.Status.SUCCESS)));
+                                       });
+                           });
+                }), e -> Exceptions.unwrap(e) instanceof RetryableException, READER_GROUP_OPERATION_MAX_RETRIES, executor);
+    }
+
+    private CompletableFuture<Boolean> isRGDeleted(String scope, String rgName) {
+        return streamMetadataStore.checkReaderGroupExists(scope, rgName).thenApply(exists -> !exists);
+    }
+
+    private CompletableFuture<Void> startReaderGroupDelete(final String scope, final String rgName, VersionedMetadata<ReaderGroupState> currentState,
+                                                           RGOperationContext context) {
+        return Futures.toVoid(streamMetadataStore.updateReaderGroupVersionedState(scope, rgName,
+           ReaderGroupState.DELETING, currentState, context, executor));
+    }
+
     /**
      * Create stream.
      *
@@ -222,6 +643,7 @@ public class StreamMetadataTasks extends TaskBase {
      */
     @Task(name = "createStream", version = "1.0", resource = "{scope}/{stream}")
     public CompletableFuture<CreateStreamStatus.Status> createStream(String scope, String stream, StreamConfiguration config, long createTimestamp) {
+        log.debug("createStream with resource called.");
         return execute(
                 new Resource(scope, stream),
                 new Serializable[]{scope, stream, config, createTimestamp},
@@ -290,104 +712,24 @@ public class StreamMetadataTasks extends TaskBase {
     }
 
     /**
-     * Add a subscriber to stream metadata.
-     * Needed only for Consumption based retention.
-     * @param scope      scope.
-     * @param stream     stream name.
-     * @param newSubscriber  Id of the ReaderGroup to be added as subscriber
-     * @param generation  subscriber generation
-     * @param contextOpt optional context
-     * @return update status.
-     */
-    public CompletableFuture<AddSubscriberStatus.Status> addSubscriber(String scope, String stream,
-                                                                     String newSubscriber, long generation,
-                                                                     OperationContext contextOpt) {
-        final OperationContext context = contextOpt == null ? streamMetadataStore.createContext(scope, stream) : contextOpt;
-        final long requestId = requestTracker.getRequestIdFor("addSubscriber", scope, stream);
-
-        return RetryHelper.withRetriesAsync(() -> streamMetadataStore.checkStreamExists(scope, stream)
-        .thenCompose(exists -> {
-            // 1. check Stream exists
-            if (!exists) {
-                return CompletableFuture.completedFuture(AddSubscriberStatus.Status.STREAM_NOT_FOUND);
-            } else {
-                // 2. get subscribers data
-                return streamMetadataStore.createSubscriber(scope, stream, newSubscriber, generation, context, executor)
-                       .thenApply(v -> AddSubscriberStatus.Status.SUCCESS)
-                       .exceptionally(ex -> {
-                        log.warn(requestId, "Exception thrown in trying to add subscriber {}",
-                                    ex.getMessage());
-                        Throwable cause = Exceptions.unwrap(ex);
-                        if (cause instanceof TimeoutException) {
-                           throw new CompletionException(cause);
-                        } else {
-                           log.warn(requestId, "Add subscriber {} failed due to {}", newSubscriber, cause);
-                           return AddSubscriberStatus.Status.FAILURE;
-                        }
-                    });
-            }
-        }), e -> Exceptions.unwrap(e) instanceof RetryableException, SUBSCRIBER_OPERATION_RETRIES, executor);
-    }
-
-    /**
-     * Remove a subscriber from subscribers' metadata.
-     * Needed for Consumption based retention.
-     * @param scope      scope.
-     * @param stream     stream name.
-     * @param subscriber  Id of the ReaderGroup to be added as subscriber.
-     * @param generation  subscriber generation.
-     * @param contextOpt optional context
-     * @return update status.
-     */
-    public CompletableFuture<DeleteSubscriberStatus.Status> deleteSubscriber(String scope, String stream,
-                                                                             String subscriber, long generation,
-                                                                             OperationContext contextOpt) {
-        final OperationContext context = contextOpt == null ? streamMetadataStore.createContext(scope, stream) : contextOpt;
-        final long requestId = requestTracker.getRequestIdFor("removeSubscriber", scope, stream);
-
-        return RetryHelper.withRetriesAsync(() -> streamMetadataStore.checkStreamExists(scope, stream)
-           .thenCompose(exists -> {
-               // 1. check Stream exists
-               if (!exists) {
-                   return CompletableFuture.completedFuture(DeleteSubscriberStatus.Status.STREAM_NOT_FOUND);
-               }
-               // 2. remove subscriber
-               return streamMetadataStore.deleteSubscriber(scope, stream, subscriber, generation, context, executor)
-                       .thenApply(x -> DeleteSubscriberStatus.Status.SUCCESS)
-                       .exceptionally(ex -> {
-                           log.warn(requestId, "Exception thrown when trying to remove subscriber from stream {}", ex.getMessage());
-                           Throwable cause = Exceptions.unwrap(ex);
-                           if (cause instanceof TimeoutException) {
-                               throw new CompletionException(cause);
-                           } else {
-                               log.warn(requestId, "Remove subscriber from stream failed due to ", cause);
-                               return DeleteSubscriberStatus.Status.FAILURE;
-                           }
-                       });
-           }), e -> Exceptions.unwrap(e) instanceof RetryableException, SUBSCRIBER_OPERATION_RETRIES, executor);
-    }
-
-
-    /**
-     * Get list of  subscribers for Stream.
-     * Needed only for Consumption based retention.
+     * Get list of subscribers for a Stream.
+     * Subscribers are ReaderGroups reading from a Stream such that their reads impact data retention in the Stream.
      * @param scope      scope.
      * @param stream     stream name.
      * @param contextOpt optional context
      * @return update status.
      */
-
     public CompletableFuture<SubscribersResponse> listSubscribers(String scope, String stream, OperationContext contextOpt) {
         final OperationContext context = contextOpt == null ? streamMetadataStore.createContext(scope, stream) : contextOpt;
         final long requestId = requestTracker.getRequestIdFor("listSubscribers", scope, stream);
         return streamMetadataStore.checkStreamExists(scope, stream)
-                .thenCompose(exists -> {
-                    if (!exists) {
+               .thenCompose(exists -> {
+               if (!exists) {
                         return CompletableFuture.completedFuture(SubscribersResponse.newBuilder()
                                 .setStatus(SubscribersResponse.Status.STREAM_NOT_FOUND).build());
                     }
-                  // 2. get subscribers
-                  return streamMetadataStore.listSubscribers(scope, stream, context, executor)
+               // 2. get subscribers
+               return streamMetadataStore.listSubscribers(scope, stream, context, executor)
                           .thenApply(result -> SubscribersResponse.newBuilder()
                                      .setStatus(SubscribersResponse.Status.SUCCESS)
                                      .addAllSubscribers(result).build())
@@ -413,46 +755,60 @@ public class StreamMetadataTasks extends TaskBase {
      * @param scope      scope.
      * @param stream     stream name.
      * @param subscriber  Stream Subscriber publishing the StreamCut.
+     * @param readerGroupId  Unique Id (UUID) of Reader Group.
+     * @param generation  Generation of Subscriber publishing the StreamCut.
      * @param truncationStreamCut  Truncation StreamCut.
      * @param contextOpt optional context
      * @return update status.
      */
     public CompletableFuture<UpdateSubscriberStatus.Status> updateSubscriberStreamCut(String scope, String stream,
-                                                                             String subscriber, ImmutableMap<Long, Long> truncationStreamCut,
+                                                                             String subscriber, String readerGroupId, long generation, ImmutableMap<Long, Long> truncationStreamCut,
                                                                              OperationContext contextOpt) {
         final OperationContext context = contextOpt == null ? streamMetadataStore.createContext(scope, stream) : contextOpt;
         final long requestId = requestTracker.getRequestIdFor("updateSubscriberStreamCut", scope, stream);
 
         return RetryHelper.withRetriesAsync(() -> streamMetadataStore.checkStreamExists(scope, stream)
                 .thenCompose(exists -> {
-                     // 1. check Stream exists
-                     if (!exists) {
-                        return CompletableFuture.completedFuture(UpdateSubscriberStatus.Status.STREAM_NOT_FOUND);
-                     }
-                     // 2. updateStreamCut
-                     return Futures.exceptionallyExpecting(streamMetadataStore.getSubscriber(scope, stream, subscriber, contextOpt, executor),
-                                e -> Exceptions.unwrap(e) instanceof StoreException.DataNotFoundException, null)
-                                .thenCompose(subscriberRecord -> {
-                                if (subscriberRecord == null) {
-                                   return CompletableFuture.completedFuture(UpdateSubscriberStatus.Status.SUBSCRIBER_NOT_FOUND);
-                                } else {
-                                   return streamMetadataStore.updateSubscriberStreamCut(scope, stream, subscriber, truncationStreamCut, subscriberRecord, context, executor)
+                // 1. Check Stream exists.
+                if (!exists) {
+                   return CompletableFuture.completedFuture(UpdateSubscriberStatus.Status.STREAM_NOT_FOUND);
+                }
+                return Futures.exceptionallyExpecting(streamMetadataStore.getSubscriber(scope, stream, subscriber, contextOpt, executor),
+                       e -> Exceptions.unwrap(e) instanceof StoreException.DataNotFoundException, null)
+                       .thenCompose(subscriberRecord -> {
+                       // 2. Check Subscriber exists in Stream metadata.
+                       if (subscriberRecord == null) {
+                           return CompletableFuture.completedFuture(UpdateSubscriberStatus.Status.SUBSCRIBER_NOT_FOUND);
+                       }
+                       final List<String> subscriberScopedName = NameUtils.extractScopedNameTokens(subscriber);
+                       return streamMetadataStore.getReaderGroupId(subscriberScopedName.get(0), subscriberScopedName.get(1))
+                               .thenCompose(rgId -> {
+                                 // 3. Check if subscriber Id matches
+                                 if (!rgId.equals(UUID.fromString(readerGroupId))) {
+                                       return CompletableFuture.completedFuture(UpdateSubscriberStatus.Status.SUBSCRIBER_NOT_FOUND);
+                                 }
+                                 if (subscriberRecord.getObject().getGeneration() != generation) {
+                                       return CompletableFuture.completedFuture(UpdateSubscriberStatus.Status.GENERATION_MISMATCH);
+                                 }
+                                 // 4. Update streamcut
+                                 return streamMetadataStore.updateSubscriberStreamCut(scope, stream, subscriber, generation, truncationStreamCut,
+                                                                                        subscriberRecord, context, executor)
                                           .thenApply(x -> UpdateSubscriberStatus.Status.SUCCESS)
-                                             .exceptionally(ex -> {
-                                                 log.warn(requestId, "Exception when trying to update StreamCut for subscriber {}", ex.getMessage());
-                                                 Throwable cause = Exceptions.unwrap(ex);
-                                                 if (cause instanceof StoreException.OperationNotAllowedException) {
-                                                     log.warn(requestId, "Exception when trying to update StreamCut for subscriber ", cause);
-                                                     return UpdateSubscriberStatus.Status.STREAMCUT_NOT_VALID;
-                                                 } else if (cause instanceof TimeoutException) {
-                                                     throw new CompletionException(cause);
-                                                 } else {
+                                          .exceptionally(ex -> {
+                                              log.warn(requestId, "Exception when trying to update StreamCut for subscriber {}", ex.getMessage());
+                                              Throwable cause = Exceptions.unwrap(ex);
+                                              if (cause instanceof StoreException.OperationNotAllowedException) {
                                                     log.warn(requestId, "Exception when trying to update StreamCut for subscriber ", cause);
-                                                    return UpdateSubscriberStatus.Status.FAILURE;
-                                                 }
+                                                    return UpdateSubscriberStatus.Status.STREAM_CUT_NOT_VALID;
+                                              } else if (cause instanceof TimeoutException) {
+                                                   throw new CompletionException(cause);
+                                              } else {
+                                                   log.warn(requestId, "Exception when trying to update StreamCut for subscriber ", cause);
+                                                   return UpdateSubscriberStatus.Status.FAILURE;
+                                              }
                                           });
-                                    }
-                            });
+                                   });
+                        });
         }), e -> Exceptions.unwrap(e) instanceof RetryableException, SUBSCRIBER_OPERATION_RETRIES, executor);
     }
 
@@ -478,7 +834,7 @@ public class StreamMetadataTasks extends TaskBase {
                     StreamCutReferenceRecord latestCut = retentionSet.getLatest();
                     
                     return generateStreamCutIfRequired(scope, stream, latestCut, recordingTime, context, delegationToken)
-                            .thenCompose(newRecord -> truncate(scope, stream, policy, context, retentionSet, newRecord, recordingTime, requestId));
+                            .thenCompose(newRecord -> truncate(scope, stream, policy, context, retentionSet, newRecord, requestId));
                 })
                 .thenAccept(x -> StreamMetrics.reportRetentionEvent(scope, stream));
 
@@ -504,50 +860,14 @@ public class StreamMetadataTasks extends TaskBase {
     }
 
     private CompletableFuture<Void> truncate(String scope, String stream, RetentionPolicy policy, OperationContext context,
-                                             RetentionSet retentionSet, StreamCutRecord newRecord, long recordingTime, long requestId) {
-        if (policy.getRetentionType().equals(RetentionPolicy.RetentionType.CONSUMPTION)) {
-            return subscriberBasedTruncation(scope, stream, context, policy, retentionSet, newRecord, requestId);
-        } else {
-            Optional<StreamCutReferenceRecord> truncationRecord = findTruncationRecord(policy, retentionSet, newRecord, recordingTime);
-            if (!truncationRecord.isPresent()) {
-                log.info("No suitable truncation record found, per retention policy for stream {}/{}", scope, stream);
-                return CompletableFuture.completedFuture(null);
-            }
-            log.info("Found truncation record for stream {}/{} truncationRecord time/size: {}/{}", scope, stream,
-                    truncationRecord.get().getRecordingTime(), truncationRecord.get().getRecordingSize());
-
-            return truncate(scope, stream, context, requestId, truncationRecord.get());
-        }
+                                             RetentionSet retentionSet, StreamCutRecord newRecord, long requestId) {
+        RetentionSet updatedRetentionSet = newRecord == null ? retentionSet : RetentionSet.addReferenceToStreamCutIfLatest(retentionSet, newRecord);
+        return truncateInternal(scope, stream, context, policy, updatedRetentionSet, requestId);
     }
 
-    private CompletableFuture<Void> truncate(String scope, String stream, OperationContext context, long requestId,
-                                                   StreamCutReferenceRecord truncationRecord) {
-        log.info("Found truncation record for stream {}/{} truncationRecord time/size: {}/{}", scope, stream,
-                truncationRecord.getRecordingTime(), truncationRecord.getRecordingSize());
-        return streamMetadataStore.getStreamCutRecord(scope, stream, truncationRecord, context, executor)
-                                  .thenCompose(streamCutRecord -> startTruncation(scope, stream, streamCutRecord.getStreamCut(), context, requestId))
-                                  .thenCompose(started -> {
-                                      if (started) {
-                                          return streamMetadataStore.deleteStreamCutBefore(scope, stream, truncationRecord, context, executor);
-                                      } else {
-                                          throw new RuntimeException("Could not start truncation");
-                                      }
-                                  })
-                                  .exceptionally(e -> {
-                                      if (Exceptions.unwrap(e) instanceof IllegalArgumentException) {
-                                          // This is ignorable exception. Throwing this will cause unnecessary retries and exceptions logged.
-                                          log.debug(requestId, "Cannot truncate at given " +
-                                                  "streamCut because it intersects with existing truncation point");
-                                          return null;
-                                      } else {
-                                          throw new CompletionException(e);
-                                      }
-                                  });
-    }
-
-    private CompletableFuture<Void> subscriberBasedTruncation(String scope, String stream, OperationContext context,
-                                                              RetentionPolicy policy, RetentionSet retentionSet, 
-                                                              StreamCutRecord newRecord, long requestId) {
+    private CompletableFuture<Void> truncateInternal(String scope, String stream, OperationContext context,
+                                                     RetentionPolicy policy, RetentionSet retentionSet,
+                                                     long requestId) {
         return streamMetadataStore.listSubscribers(scope, stream, context, executor)
                            .thenCompose(list -> Futures.allOfWithResults(list.stream().map(x -> 
                                    streamMetadataStore.getSubscriber(scope, stream, x, context, executor)).collect(Collectors.toList())))
@@ -563,10 +883,10 @@ public class StreamMetadataTasks extends TaskBase {
                            .thenApply(this::computeSubscribersLowerBound)
                 .thenCompose(lowerBound -> {
                     CompletableFuture<Map<Long, Long>> toTruncateAt; 
-                    if (policy.getConsumptionLimits().getType().equals(RetentionPolicy.ConsumptionLimits.Type.SIZE_BYTES)) {
-                        toTruncateAt = getTruncationStreamCutBySizeLimit(scope, stream, context, policy, retentionSet, lowerBound, newRecord);
+                    if (policy.getRetentionType().equals(RetentionPolicy.RetentionType.SIZE)) {
+                        toTruncateAt = getTruncationStreamCutBySizeLimit(scope, stream, context, policy, retentionSet, lowerBound);
                     } else {
-                        toTruncateAt = getTruncationStreamCutByTimeLimit(scope, stream, context, policy, retentionSet, lowerBound, newRecord);
+                        toTruncateAt = getTruncationStreamCutByTimeLimit(scope, stream, context, policy, retentionSet, lowerBound);
                     }
                     return toTruncateAt.thenCompose(truncationStreamCut -> {
                         if (truncationStreamCut == null || truncationStreamCut.isEmpty()) {
@@ -587,103 +907,131 @@ public class StreamMetadataTasks extends TaskBase {
                                     } else {
                                         throw new RuntimeException("Could not start truncation");
                                     }
+                                }).exceptionally(e -> {
+                                    if (Exceptions.unwrap(e) instanceof IllegalArgumentException) {
+                                      // This is ignorable exception. Throwing this will cause unnecessary retries and exceptions logged.
+                                      log.debug(requestId, "Cannot truncate at given streamCut because it intersects with existing truncation point");
+                                      return null;
+                                    } else {
+                                      throw new CompletionException(e);
+                                    }
                                 });
                     });
                 });
     }
 
     private CompletableFuture<Map<Long, Long>> getTruncationStreamCutBySizeLimit(String scope, String stream, OperationContext context, RetentionPolicy policy,
-                                                                                 RetentionSet retentionSet, Map<Long, Long> lowerBound, StreamCutRecord newRecord) {
+                                                                                 RetentionSet retentionSet, Map<Long, Long> lowerBound) {
         // if the lowerbound on subscribers streamcuts satisfies the policy size bound, then return it. 
         // else return the stream cut that satisfies maximum bound on size. 
         // 1. if lowerbound.size < max and lowerbound.size > min truncate at lowerbound
         // 2. if lowerbound.size < min, truncate at max irrespective of if lowerbound overlaps with max or not. 
         // 3. if lowerbound.size > max, truncate at max
-        long currentSize = newRecord != null ? newRecord.getRecordingSize() : retentionSet.getLatest().getRecordingSize();
-        return streamMetadataStore.getSizeTillStreamCut(scope, stream, lowerBound, Optional.empty(), context, executor)
-                          .thenCompose(sizeTill -> {
-                               long retainedSize = currentSize - sizeTill;
-                               Supplier<Optional<StreamCutReferenceRecord>> maxBound = () -> retentionSet
-                                      .getRetentionRecords().stream()
-                                      .filter(x -> currentSize - x.getRecordingSize() > policy.getConsumptionLimits().getMaxValue())
-                                      .max(Comparator.comparingLong(StreamCutReferenceRecord::getRecordingTime));
+        long currentSize = retentionSet.getLatest().getRecordingSize();
 
-                               // if retainedSize is less than min size then do not truncate the stream. 
-                               if (retainedSize < policy.getConsumptionLimits().getMinValue()) {
-                                   return maxBound.get().map(x -> streamMetadataStore.getStreamCutRecord(scope, stream, x, context, executor)
-                                                                               .thenApply(StreamCutRecord::getStreamCut))
-                                                  .orElse(CompletableFuture.completedFuture(null));
-                               } else {
-                                   // if retained size is less than max allowed, then truncate the stream at subscriber lower bound. 
-                                   if (retainedSize < policy.getConsumptionLimits().getMaxValue()) {
-                                       return CompletableFuture.completedFuture(lowerBound);
-                                   } else {
-                                       // if retained size is greater than max allowed, then truncate the stream at streamcut
-                                       // from retention set that matches the retention policy size bound. 
-                                       return maxBound.get().map(x -> streamMetadataStore.getStreamCutRecord(scope, stream, x, context, executor)
-                                                   .thenApply(StreamCutRecord::getStreamCut)
-                                                   .thenCompose(maxRecord -> {
-                                                       // if max record is strictly greater than lowerbound then we can truncate at max record
-                                                       return streamMetadataStore.streamCutStrictlyGreaterThan(
-                                                               scope, stream, maxRecord, lowerBound, context, executor)
-                                                                                 .thenApply(gt -> {
-                                                                                     if (gt) {
-                                                                                         return maxRecord;
-                                                                                     } else {
-                                                                                         return lowerBound;
-                                                                                     }
-                                                                                 });
-                                                   })).orElse(CompletableFuture.completedFuture(null));   
-                                   }
-                               }
-                           });
+        // if lowerbound is empty simply return min
+        if (lowerBound == null || lowerBound.isEmpty()) {
+            return retentionSet
+                    .getRetentionRecords().stream()
+                    .filter(x -> currentSize - x.getRecordingSize() > policy.getRetentionParam())
+                    .max(Comparator.comparingLong(StreamCutReferenceRecord::getRecordingTime))
+                    .map(x -> streamMetadataStore.getStreamCutRecord(scope, stream, x, context, executor).thenApply(StreamCutRecord::getStreamCut))
+                    .orElse(CompletableFuture.completedFuture(null));
+        }
+
+        return streamMetadataStore.getSizeTillStreamCut(scope, stream, lowerBound, Optional.empty(), context, executor)
+                .thenCompose(sizeTill -> {
+                    long retainedSize = currentSize - sizeTill;
+                    Supplier<Optional<StreamCutReferenceRecord>> maxBound = () -> retentionSet
+                    .getRetentionRecords().stream()
+                    .filter(x -> currentSize - x.getRecordingSize() > policy.getRetentionMax())
+                    .max(Comparator.comparingLong(StreamCutReferenceRecord::getRecordingTime));
+                    // if retainedSize is less than min size then do not truncate the stream.
+                    if (retainedSize < policy.getRetentionParam()) {
+                        // if retainedSize is less than min size then truncate the stream at max bound.
+                        return maxBound.get().map(x -> streamMetadataStore.getStreamCutRecord(scope, stream, x, context, executor)
+                        .thenApply(StreamCutRecord::getStreamCut))
+                        .orElse(CompletableFuture.completedFuture(null));
+                        } else {
+                        // if retained size is less than max allowed, then truncate the stream at subscriber lower bound.
+                        if (retainedSize < policy.getRetentionMax()) {
+                            return CompletableFuture.completedFuture(lowerBound);
+                        } else {
+                            // if retained size is greater than max allowed, then truncate the stream at streamcut
+                            // from retention set that matches the retention policy size bound.
+                            return maxBound.get().map(x -> streamMetadataStore.getStreamCutRecord(scope, stream, x, context, executor)
+                            .thenApply(StreamCutRecord::getStreamCut)
+                            .thenCompose(maxRecord -> {
+                            // if max record is strictly greater than lowerbound then we can truncate at max record
+                            return streamMetadataStore.streamCutStrictlyGreaterThan(
+                            scope, stream, maxRecord, lowerBound, context, executor)
+                            .thenApply(gt -> {
+                            if (gt) {
+                                return maxRecord;
+                              } else {
+                                return lowerBound;
+                              }
+                            });
+                            })).orElse(CompletableFuture.completedFuture(null));
+                        }
+                      }
+                });
     }
 
     private CompletableFuture<Map<Long, Long>> getTruncationStreamCutByTimeLimit(String scope, String stream, OperationContext context,
                                                                                  RetentionPolicy policy, RetentionSet retentionSet,
-                                                                                 Map<Long, Long> lowerBound, StreamCutRecord latest) {
+                                                                                 Map<Long, Long> lowerBound) {
         Map.Entry<StreamCutReferenceRecord, StreamCutReferenceRecord> limits =
-                getBoundStreamCuts(policy.getConsumptionLimits(), retentionSet);
-        // if subscriber lowerbound is ahead of streamcut corresponding to the max time and is behind stream cut for min time 
+                getBoundStreamCuts(policy, retentionSet);
+        // if subscriber lowerbound is ahead of streamcut corresponding to the max time and is behind stream cut for min time
         // from the retention set then we can safely truncate at lowerbound. Else we will truncate at the max time bound if it
         // exists
         // 1. if LB > min => truncate at min
         // 2. if LB < max => truncate at max
         // 3. if LB < min && LB > max => truncate at LB
-        // 4. if LB < min && overlaps max => truncate at LB
-        CompletableFuture<StreamCutRecord> limitMaxFuture = limits.getKey() == null ? CompletableFuture.completedFuture(null) :
-                streamMetadataStore.getStreamCutRecord(scope, stream, limits.getKey(), context, executor);
+        // 4. if LB < min && overlaps max => truncate at max
         CompletableFuture<StreamCutRecord> limitMinFuture = limits.getValue() == null ? CompletableFuture.completedFuture(null) :
                 streamMetadataStore.getStreamCutRecord(scope, stream, limits.getValue(), context, executor);
+
+        // if lowerbound is empty simply return min
+        if (lowerBound == null || lowerBound.isEmpty()) {
+            return limitMinFuture.thenApply(min -> Optional.ofNullable(min).map(StreamCutRecord::getStreamCut).orElse(null));
+        }
+
+        CompletableFuture<StreamCutRecord> limitMaxFuture = limits.getKey() == null ? CompletableFuture.completedFuture(null) :
+                streamMetadataStore.getStreamCutRecord(scope, stream, limits.getKey(), context, executor);
         return CompletableFuture.allOf(limitMaxFuture, limitMinFuture)
-                         .thenCompose(v -> {
-                             StreamCutRecord limitMax = limitMaxFuture.join();
-                             StreamCutRecord limitMin = limitMinFuture.join();
-                             if (limitMin != null) {
-                                 return streamMetadataStore.streamCutStrictlyGreaterThan(scope, stream, limitMin.getStreamCut(), lowerBound, context, executor)
-                                                    .thenCompose(gtMin -> {
-                                                        if (gtMin) {
-                                                            if (limitMax == null) {
-                                                                return CompletableFuture.completedFuture(lowerBound);
-                                                            } else {
-                                                                return streamMetadataStore.streamCutStrictlyGreaterThan(scope, stream, limitMax.getStreamCut(), lowerBound, context, executor)
-                                                                                          .thenApply(gtMax -> gtMax ? limitMax.getStreamCut() : lowerBound);
-                                                            }
-                                                        } else {
-                                                            return streamMetadataStore.streamCutStrictlyGreaterThan(scope, stream, lowerBound, limitMin.getStreamCut(), context, executor)
-                                                                               .thenApply(gt -> gt ? limitMin.getStreamCut() : null);
-                                                        }
-                                                    });
-                             } else {
-                                 // if min limit is 0 then latest effectively becomes the min. and we truncate at the lowerbound.
-                                 if (latest != null && policy.getConsumptionLimits().getMinValue() == 0L) {
-                                     // truncate at the lower bound 
-                                     return CompletableFuture.completedFuture(lowerBound);
-                                 } else {
-                                     return CompletableFuture.completedFuture(null);
-                                 }
-                             }
-                         });
+                .thenCompose(v -> {
+                    StreamCutRecord limitMax = limitMaxFuture.join();
+                    StreamCutRecord limitMin = limitMinFuture.join();
+                    if (limitMin != null) {
+                        return streamMetadataStore.streamCutStrictlyGreaterThan(scope, stream, limitMin.getStreamCut(), lowerBound, context, executor)
+                        .thenCompose(gtMin -> {
+                           if (gtMin) {
+                                if (limitMax == null) {
+                                    return CompletableFuture.completedFuture(lowerBound);
+                                } else {
+                                    return streamMetadataStore.streamCutStrictlyGreaterThan(scope, stream, lowerBound, limitMax.getStreamCut(), context, executor)
+                                           .thenApply(gtMax -> gtMax ? lowerBound : limitMax.getStreamCut());
+                                    }
+                                } else {
+                                return streamMetadataStore.streamCutStrictlyGreaterThan(scope, stream, lowerBound, limitMin.getStreamCut(), context, executor)
+                                .thenApply(gt -> {
+                                    if (gt) {
+                                        // lowerbound strictly ahead of min
+                                        return limitMin.getStreamCut();
+                                    } else {
+                                        // lowerbound overlaps with min.
+                                        // if max bound exists truncate at max
+                                        return limitMax != null ? limitMax.getStreamCut() : null;
+                                    }
+                                  });
+                                }
+                            });
+                    } else {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                });
     }
 
     private Map<Long, Long> computeSubscribersLowerBound(List<Map<StreamSegmentRecord, Long>> subscribers) {
@@ -816,9 +1164,8 @@ public class StreamMetadataTasks extends TaskBase {
         }
     }
 
-    private Map.Entry<StreamCutReferenceRecord, StreamCutReferenceRecord> getBoundStreamCuts(RetentionPolicy.ConsumptionLimits policy,
+    private Map.Entry<StreamCutReferenceRecord, StreamCutReferenceRecord> getBoundStreamCuts(RetentionPolicy policy,
                                                                                              RetentionSet retentionSet) {
-        assert RetentionPolicy.ConsumptionLimits.Type.TIME_MILLIS.equals(policy.getType());
         AtomicReference<StreamCutReferenceRecord> max = new AtomicReference<>();
         AtomicReference<StreamCutReferenceRecord> min = new AtomicReference<>();
 
@@ -827,11 +1174,11 @@ public class StreamMetadataTasks extends TaskBase {
         long currentTime = retentionClock.get().get();
         retentionSet.getRetentionRecords().forEach(x -> {
             long value = currentTime - x.getRecordingTime();
-            if (value >= policy.getMaxValue() && value < maxSoFar.get()) {
+            if (value >= policy.getRetentionMax() && value < maxSoFar.get()) {
                 max.set(x);
                 maxSoFar.set(value);
             }
-            if (value >= policy.getMinValue() && value < minSoFar.get()) {
+            if (value >= policy.getRetentionParam() && value < minSoFar.get()) {
                 min.set(x);
                 minSoFar.set(value);
             }
@@ -1222,10 +1569,10 @@ public class StreamMetadataTasks extends TaskBase {
                 .handle((result, ex) -> {
                     if (ex != null) {
                         Throwable cause = Exceptions.unwrap(ex);
+                        log.warn(requestId, "Create stream failed due to ", ex);
                         if (cause instanceof StoreException.DataNotFoundException) {
                             return CreateStreamStatus.Status.SCOPE_NOT_FOUND;
                         } else {
-                            log.warn(requestId, "Create stream failed due to ", ex);
                             return CreateStreamStatus.Status.FAILURE;
                         }
                     } else {

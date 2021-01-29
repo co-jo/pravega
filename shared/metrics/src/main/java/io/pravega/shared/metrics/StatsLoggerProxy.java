@@ -75,6 +75,16 @@ public class StatsLoggerProxy implements StatsLogger {
     /**
      * Atomically gets an existing MetricProxy from the given cache or creates a new one and adds it.
      *
+     * In this case a read-modify-write cycle needs to happen atomically. A number of threads may gain a reference
+     * to any given {@link MetricProxy}, which makes available the underlying {@link Meter} instance that is bound to
+     * a {@link io.micrometer.core.instrument.composite.CompositeMeterRegistry}. We must be considerate when closing the
+     * {@link Meter} from the proxy as that operation has side effects.
+     *
+     * If one thread has a reference to a {@link MetricProxy} we have to ensure that when another thread gains a reference
+     * to that proxy, the {@link Meter} is still in a valid state (not removed from the CompositeMeterRegistry). Furthermore
+     * the {@link MetricProxy} removes itself from the {@link StatsLoggerProxy} cache using a callback, so calling {@link MetricProxy#close()}
+     * on one thread, may invalidate it in another.
+     *
      * @param cache        The Cache to get or insert into.
      * @param name         Metric/Proxy name.
      * @param createMetric A Function that creates a new Metric given its name.
@@ -83,17 +93,13 @@ public class StatsLoggerProxy implements StatsLogger {
      * @param <V>          Type of MetricProxy.
      * @return Either the existing MetricProxy (if it is already registered) or the newly created one.
      */
-    private static <T extends Metric, V extends MetricProxy<T, V>> V getOrSet(ConcurrentHashMap<String, V> cache, String name,
-                                                                              Function<String, T> createMetric,
-                                                                              ProxyCreator<T, V> createProxy, String... tags) {
-        // We have to create the metric inside computeIfAbsent even though it is under lock, because micrometer is optimized
-        // such that the call to create will return the original metric if it has already been created. So when close is called
-        // on one of the metrics it will close both of them. 
+    private <T extends Metric, V extends MetricProxy<T>> V getOrSet(ConcurrentHashMap<String, V> cache, String name,
+                                                                    Function<String, T> createMetric,
+                                                                    ProxyCreator<T, V> createProxy, String... tags) {
         MetricsNames.MetricKey keys = metricKey(name, tags);
-        Consumer<V> closeCallback = m -> cache.remove(m.getProxyName(), m);
-        return cache.computeIfAbsent(keys.getCacheKey(), k -> {            
-            T newMetric = createMetric.apply(keys.getRegistryKey());
-            return createProxy.apply(newMetric, keys.getCacheKey(), closeCallback);
+        return cache.computeIfAbsent(keys.getCacheKey(), key -> {
+            T metric = createMetric.apply(keys.getRegistryKey());
+            return createProxy.apply(metric, keys.getCacheKey(), cache::remove);
         });
     }
     
