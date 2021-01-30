@@ -12,7 +12,7 @@ package io.pravega.shared.metrics;
 import java.time.Duration;
 import java.util.function.Consumer;
 
-public class OpStatsLoggerProxy extends MetricProxy<OpStatsLogger, OpStatsLoggerProxy> implements OpStatsLogger {
+public class OpStatsLoggerProxy extends MetricProxy<OpStatsLogger> implements OpStatsLogger {
 
     OpStatsLoggerProxy(OpStatsLogger logger, String proxyName, Consumer<OpStatsLoggerProxy> closeCallback) {
         super(logger, proxyName, closeCallback);
