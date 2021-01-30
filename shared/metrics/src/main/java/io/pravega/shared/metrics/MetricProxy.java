@@ -31,7 +31,7 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
 
     @Getter
     private final String proxyName;
-    private final Consumer<SelfT> closeCallback;
+    private final Consumer<String> closeCallback;
 
     /**
      * Creates a new instance of the MetricProxy class.
@@ -40,7 +40,7 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
      * @param proxyName     The name of the MetricProxy. This may be different from the name of the Metric's instance.
      * @param closeCallback A Consumer that will be invoked when this Proxy is closed.
      */
-    MetricProxy(MetricT instance, String proxyName, Consumer<SelfT> closeCallback) {
+    MetricProxy(T instance, String proxyName, Consumer<String> closeCallback) {
         this.closeCallback = Preconditions.checkNotNull(closeCallback, "closeCallback");
         this.proxyName = Exceptions.checkNotNullOrEmpty(proxyName, "name");
         updateInstance(instance);
@@ -58,13 +58,6 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
     }
 
     /**
-     * All implementations should return 'this'. (Workaround to Java's lack of variance)
-     */
-    protected abstract SelfT getSelf();
-    
-    protected abstract MetricT getNullInstance();
-    
-    /**
      * Gets the id of the underlying metric.
      *
      * @return The id of the underlying metric.
@@ -78,14 +71,14 @@ abstract class MetricProxy<T extends Metric> implements AutoCloseable {
      *
      * @param newInstance The instance to update to.
      */
-    void updateInstance(MetricT newInstance) {
-        MetricT oldInstance = this.instance.getAndSet(Preconditions.checkNotNull(newInstance, "instance"));
+    void updateInstance(T newInstance) {
+        T oldInstance = this.instance.getAndSet(Preconditions.checkNotNull(newInstance, "instance"));
         if (oldInstance != null && !newInstance.equals(oldInstance)) {
             oldInstance.close();
         }
     }
 
-    protected MetricT getInstance() {
+    protected T getInstance() {
         return this.instance.get();
     }
 }

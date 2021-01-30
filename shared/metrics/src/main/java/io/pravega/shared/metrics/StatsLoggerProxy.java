@@ -102,8 +102,8 @@ public class StatsLoggerProxy implements StatsLogger {
             return createProxy.apply(metric, keys.getCacheKey(), cache::remove);
         });
     }
-    
+
     private interface ProxyCreator<T1, R> {
-        R apply(T1 metricInstance, String proxyName, Consumer<R> closeCallback);
+        R apply(T1 metricInstance, String proxyName, Consumer<String> closeCallback);
     }
 }

@@ -14,7 +14,7 @@ import java.util.function.Supplier;
 
 class GaugeProxy extends MetricProxy<Gauge> implements Gauge {
 
-    GaugeProxy(Gauge gauge, String proxyName, Consumer<GaugeProxy> closeCallback) {
+    GaugeProxy(Gauge gauge, String proxyName, Consumer<String> closeCallback) {
         super(gauge, proxyName, closeCallback);
     }
 
@@ -26,15 +26,5 @@ class GaugeProxy extends MetricProxy<Gauge> implements Gauge {
     @Override
     public Supplier<Number> getSupplier() {
         return getInstance().getSupplier();
-    }
-
-    @Override
-    protected GaugeProxy getSelf() {
-        return this;
-    }
-
-    @Override
-    protected Gauge getNullInstance() {
-        return NullStatsLogger.NULLGAUGE;
     }
 }

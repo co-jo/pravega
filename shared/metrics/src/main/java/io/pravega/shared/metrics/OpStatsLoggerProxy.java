@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 
 public class OpStatsLoggerProxy extends MetricProxy<OpStatsLogger> implements OpStatsLogger {
 
-    OpStatsLoggerProxy(OpStatsLogger logger, String proxyName, Consumer<OpStatsLoggerProxy> closeCallback) {
+    OpStatsLoggerProxy(OpStatsLogger logger, String proxyName, Consumer<String> closeCallback) {
         super(logger, proxyName, closeCallback);
     }
 
@@ -48,13 +48,4 @@ public class OpStatsLoggerProxy extends MetricProxy<OpStatsLogger> implements Op
         getInstance().clear();
     }
 
-    @Override
-    protected OpStatsLoggerProxy getSelf() {
-        return this;
-    }
-
-    @Override
-    protected OpStatsLogger getNullInstance() {
-        return NullStatsLogger.NULLOPSTATSLOGGER;
-    }
 }
