@@ -1065,6 +1065,8 @@ project('test:system') {
         systemProperty "logLevel", System.getProperty("log.level", "DEBUG")
 
         maxParallelForks = 1
+
+        commandLine './kubernetes/fluentBitStep.sh', System.getProperty("k8HostLogPath", "")
     }
 
     task execShellScript(type: Exec) {
