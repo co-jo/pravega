@@ -56,4 +56,4 @@ if [ ! -z $HOST_LOGS_PATH ]; then
     args+=(--set extraVolumes[1].hostPath.type=)
 fi
 
-helm install fluent-bit fluent/fluent-bit "${args[@]}"
+helm install pravega-fluent-bit fluent/fluent-bit "${args[@]}"
