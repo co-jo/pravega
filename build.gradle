@@ -1013,8 +1013,13 @@ project('test:system') {
         commandLine './kubernetes/setupTestPod.sh'
     }
 
+    task runFluentBitSetup(type: Exec) {
+        environment 'HOST_LOGS_PATH', System.getProperty("k8HostLogPath", "")
+        commandLine './kubernetes/fluentBitSetup.sh', 'install'
+    }
+
     task startK8SystemTests(type: Test) {
-        dependsOn 'copyTestsToK8sCluster' // ensure test artifacts are copied to the cluster.
+        dependsOn 'copyTestsToK8sCluster', 'runFluentBitSetup' // ensure test artifacts are copied to the cluster.
         description 'Used to invoke K8s based System Tests, example usage: gradle startK8SystemTests'
         testClassesDirs = sourceSets.test.output.classesDirs
         classpath = sourceSets.test.runtimeClasspath
@@ -1065,9 +1070,6 @@ project('test:system') {
         systemProperty "logLevel", System.getProperty("log.level", "DEBUG")
 
         maxParallelForks = 1
-
-        def k8HostLogPath = System.getProperty("k8HostLogPath", "")
-        commandLine './kubernetes/fluentBitStep.sh', "install", "--host-path=${k8HostLogPath}"
     }
 
     task execShellScript(type: Exec) {
