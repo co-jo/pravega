@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euxo pipefail
+
 STORAGE_CLASS=standard
 STORAGE_CAPACITY_GI=50
 
@@ -142,7 +144,7 @@ EOF
         -n=$NAMESPACE \
         --set=image.repository=$IMAGE_REPO
 }
-  z
+
 uninstall() {
     set -e
     local response="$(helm delete $NAME -n=$NAMESPACE)"
