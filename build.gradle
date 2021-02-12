@@ -1014,6 +1014,7 @@ project('test:system') {
     }
 
     task runFluentBitSetup(type: Exec) {
+        commandLine './kubernetes/fluentBitSetup.sh', 'uninstall'
         environment 'HOST_LOGS_PATH', System.getProperty("k8HostLogPath", "")
         commandLine './kubernetes/fluentBitSetup.sh', 'install'
     }

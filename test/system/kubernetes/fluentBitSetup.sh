@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 STORAGE_CLASS=standard
 STORAGE_CAPACITY_GI=50
@@ -9,8 +9,8 @@ MOUNT_PATH=/data
 
 HOST_LOGS=host-logs
 HOST_LOGS_PATH=${HOST_LOGS_PATH:-""}
-NAME=pravega-fluent-bit
-NAMESPACE=default
+NAME=${NAME:-"pravega-fluent-bit"}
+NAMESPACE=${NAMESPACE:-"default"}
 IMAGE_REPO=${IMAGE_REPO:-"fluent/fluent-bit"}
 
 KEEP_PVC=false
@@ -142,12 +142,20 @@ EOF
         -n=$NAMESPACE \
         --set=image.repository=$IMAGE_REPO
 }
-
+  z
 uninstall() {
-    helm delete $NAME -n=$NAMESPACE
-    if [ $KEEP_PVC = false ]; then
-        kubectl delete pvc $PVC_NAME -n=$NAMESPACE
+    set -e
+    local response="$(helm delete $NAME -n=$NAMESPACE)"
+    local return_status=$?
+    # Error response other than one containing 'not found'.
+    if [ $return_status -eq 1 ] && [[ ! $response =~ "not found" ]]; then
+        echo $response
+        exit 1
     fi
+    if [ $KEEP_PVC = false ]; then
+        kubectl delete pvc $PVC_NAME -n=$NAMESPACE --ignore-not-found=true
+    fi
+    set +e
 }
 
 usage() {
