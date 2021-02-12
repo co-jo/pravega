@@ -147,7 +147,7 @@ EOF
 
 uninstall() {
     set -e
-    local response="$(helm delete $NAME -n=$NAMESPACE)"
+    local response=$(helm delete $NAME -n=$NAMESPACE)
     local return_status=$?
     # Error response other than one containing 'not found'.
     if [ $return_status -eq 1 ] && [[ ! $response =~ "not found" ]]; then
