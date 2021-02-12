@@ -1066,7 +1066,8 @@ project('test:system') {
 
         maxParallelForks = 1
 
-        commandLine './kubernetes/fluentBitStep.sh', System.getProperty("k8HostLogPath", "")
+        def k8HostLogPath = System.getProperty("k8HostLogPath", "")
+        commandLine './kubernetes/fluentBitStep.sh', "install", "--host-path=${k8HostLogPath}"
     }
 
     task execShellScript(type: Exec) {
