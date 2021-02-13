@@ -37,6 +37,7 @@ FLUENT_BIT_INPUTS=$(cat << EOF
 [INPUT]
     Name tail
     Path /var/log/containers/*.log
+    Parser docker_no_time
     Tag kube.*
     Mem_Buf_Limit 5MB
     Skip_Long_Lines Off
