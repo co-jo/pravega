@@ -1,31 +1,38 @@
 #!/usr/bin/env bash
 
-set -euxo pipefail
+set -euo pipefail
 
-# Log Rotation parameters.
-LOG_ROTATE_INTERVAL_SECONDS=${LOG_ROTATE_INTERVAL:-10}
-LOG_ROTATE_THRESHOLD_BYTES=${LOG_ROTATE_THRESHOLD_BYTES:-1000000}
-LOG_ROTATE_OLD_DIR=${LOG_ROTATE_OLD_DIR:-"."}
-
-# Kubernetes specific properties.
+# Kubernetes State
+DEPLOYMENT_NAME="pravega-logs"
+CONFIG_MAP_NAME="pravega-logrotate"
 PVC_NAME=pravega-log-sink
-PVC_CAPACITY_GI=${PVC_CAPACITY_GI:-50}
 VOLUME_NAME=logs
 
-STORAGE_CLASS=${STORAGE_CLASS:-"standard"}
 NAMESPACE=${NAMESPACE:-"default"}
 IMAGE_REPO=${IMAGE_REPO:-"fluent/fluent-bit"}
-KEEP_PVC=false
 
-MOUNT_PATH=/data
 HOST_LOGS=host-logs
+MOUNT_PATH=/data
+CONFIG_MAP_DATA=/etc/config
 NAME=${NAME:-"pravega-fluent-bit"}
+
+# Configurable flag parameters.
+KEEP_PVC=false
+STORAGE_CLASS=${STORAGE_CLASS:-"standard"}
+PVC_CAPACITY_GI=${PVC_CAPACITY_GI:-50}
+LOG_ROTATE_INTERVAL_SECONDS=${LOG_ROTATE_INTERVAL:-10}
 # The location on the underlying node where the container logs are stored.
 HOST_LOGS_PATH=${HOST_LOGS_PATH:-""}
+
+LOG_ROTATE_THRESHOLD_BYTES=${LOG_ROTATE_THRESHOLD_BYTES:-1000000}
+LOG_ROTATE_OLD_DIR=${LOG_ROTATE_OLD_DIR:-"rotated"}
+LOG_ROTATE_CONF_PATH=$CONFIG_MAP_DATA/"logrotate.conf"
+LOG_EXT="gz"
 
 #################################
 # Fluent Bit Configuration
 #################################
+
 FLUENT_BIT_INPUTS=$(cat << EOF
 [INPUT]
     Name tail
@@ -82,7 +89,7 @@ FLUENT_BIT_SERVICE=$(cat << EOF
 [SERVICE]
     Flush 1
     Daemon Off
-    Log_Level debug
+    Log_Level info
     Parsers_File parsers.conf
     Parsers_File custom_parsers.conf
     HTTP_Server On
@@ -104,7 +111,7 @@ LOG_ROTATE_CONF=$(cat << EOF
     rotate 1000
     olddir $LOG_ROTATE_OLD_DIR
     dateext
-    dateformat %s
+    dateformat -%s
 }
 EOF
 )
@@ -112,48 +119,52 @@ EOF
 # Escape all the non-configurable variables to avoid unintended command substitutions or variables expansions.
 LOG_ROTATE_WATCH=$(cat << EOF
 #!/bin/ash
-LOG_ROTATE_CONF_PATH="logrotate.conf"
 
-# This function assumes the '%s' dateformat will be applied. It transforms any files in the 'olddir' directory in the
-'<logname>-<epoch>.gz' format to '<logname>-<utc>.gz'.
+# This function assumes the '-%s' dateformat will be applied. It transforms any files in the 'olddir' directory in the
+# '<logname>-<epoch>.gz' format to '<logname>-<utc>.gz'.
 rename() {
-  ext="gz"
-  rotated=\$(stat $LOG_ROTATE_OLD_DIR/*.$ext--terse -c=%n | sed  's/=//')
+  rotated=\$(stat $MOUNT_PATH/$LOG_ROTATE_OLD_DIR/*.$LOG_EXT -t -c=%n | sed  's/=//')
+
   for file in \$rotated; do
-      match=\$(echo $file | grep -oE "\-[0-9]+\.$ext\$")
+      match=\$(echo \$file | grep -oE "\-[0-9]+\.$LOG_EXT\$")
       if [ \$? -eq 0 ]; then
-          epoch="\$(echo $match | grep -oE '[0-9]+')"
+          epoch="\$(echo \$match | grep -oE '[0-9]+')"
           utc=\$(date --utc +%FT%TZ -d "@\$epoch")
-          mv \$file "\${file%$match}-\$utc.$ext"
+          mv \$file "\${file%\$match}-\$utc.$LOG_EXT"
       fi
   done
 }
 
+# Permissions of containing directory changed to please logrotate.
+chmod o-wx .
+mkdir -p $MOUNT_PATH/$LOG_ROTATE_OLD_DIR
+
 while true; do
-    output=\$(stat $MOUNT_PATH/*.log --terse -c=%s | sed s/=//)
+    output=\$(stat $MOUNT_PATH/*.log -t -c=%s | sed s/=//)
     for size in \$output; do
-        if [\$size -gt $LOG_ROTATE_THRESHOLD_BYTES]; then
+        if [ \$size -gt $LOG_ROTATE_THRESHOLD_BYTES ]; then
             logrotate $LOG_ROTATE_CONF_PATH
+            # Logrotate does not support a convenient date extension when rotation happens frequently.
+            rename
             break
         fi
     done;
-    # Logrotate does not support a convenient date extension.
-    rename
     sleep $LOG_ROTATE_INTERVAL_SECONDS
 done
+
 EOF
 )
 
-apply_logroate_configmap() {
+apply_logrotate_configmap() {
     tab='    '
     # Apply required indentation by prepending two tabs.
     log_rotate_watch=$(echo "$LOG_ROTATE_WATCH" | sed "s/^/$tab$tab/")
     log_rotate_conf=$(echo "$LOG_ROTATE_CONF" | sed "s/^/$tab$tab/")
-    cat << EOF | kubectl apply -f -
+    cat << EOF | kubectl apply -n=$NAMESPACE --wait -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: log-rotate
+  name: $CONFIG_MAP_NAME
   namespace: $NAMESPACE
 data:
     watch.sh: |
@@ -163,47 +174,47 @@ $log_rotate_conf
 EOF
 }
 
-# Mount the above configmap to provide the logrotate conf and watch functionality.
+# Mount the above configmap to provide the logrotate conf and watch/naming functionality.
 # Also mount the $PVC_NAME PVC to provide an entry point into the logs.
-apply_logrotate_daemonset() {
-  configmap_data=/etc/config
-  cat << EOF | kubectl apply -f -
+apply_logrotate_deployment() {
+  cat << EOF | kubectl apply -n=$NAMESPACE --wait -f -
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
-  name: pravega-logs
+  name: $DEPLOYMENT_NAME
 spec:
+  replicas: 1
   selector:
     matchLabels:
-      name: pravega-logs
+      name: $DEPLOYMENT_NAME
   template:
     metadata:
       labels:
-        name: pravega-logs
+        name: $DEPLOYMENT_NAME
     spec:
       containers:
       - name: alpine
-        image: alpine/alpine
+        image: alpine
+        workingDir: $MOUNT_PATH
         command: [ '/bin/ash', '-c' ]
         args:
           - apk add logrotate;
-            $configmap_data/watch.sh
+            $CONFIG_MAP_DATA/watch.sh
         volumeMounts:
         - name: pravega-logs
-          mountPath: /data
-          readOnly: true
+          mountPath: $MOUNT_PATH
         - name: logrotate
-          mountPath: $configmap_data
+          mountPath: $CONFIG_MAP_DATA
       volumes:
       - name: logrotate
         configMap:
-          name: logrotate
+          name: $CONFIG_MAP_NAME
+          defaultMode: 0700
       - name: pravega-logs
         persistentVolumeClaim:
           claimName: $PVC_NAME
 EOF
 }
-# Build the configmap based on the two LOG_ROTATE_* variables.
 
 ####################################
 #### Main Process
@@ -229,7 +240,7 @@ EOF
 
 install() {
     # The claim used to persist the logs. Required for all installations.
-    cat << EOF | kubectl apply -n=$NAMESPACE -f -
+    cat << EOF | kubectl apply --wait -n=$NAMESPACE -f -
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
@@ -269,6 +280,8 @@ EOF
     helm install $NAME fluent/fluent-bit "${args[@]}" \
         -n=$NAMESPACE \
         --set=image.repository=$IMAGE_REPO
+    apply_logrotate_configmap
+    apply_logrotate_deployment
 }
 
 uninstall() {
@@ -280,6 +293,8 @@ uninstall() {
         echo $response
         exit 1
     fi
+    kubectl delete deployment $DEPLOYMENT_NAME -n=$NAMESPACE --ignore-not-found
+    kubectl delete configmap $CONFIG_MAP_NAME -n=$NAMESPACE --ignore-not-found
     if [ $KEEP_PVC = false ]; then
         kubectl delete pvc $PVC_NAME -n=$NAMESPACE --ignore-not-found=true
     fi
@@ -287,13 +302,17 @@ uninstall() {
 }
 
 usage() {
-        echo -e "Usage: $0.sh <install, uninstall>"
-        echo -e "-h=*|--host-path=*: Creates a new mount point at the provided location (during installation)."
-        echo -e "-s=*|--storageclass=*: The storageclass used to provision the PVC."
-        echo -e "-c=*|--pvc-capacity=*: The size of the PVC to provision."
+        echo -e "Usage: $0 <install, uninstall>"
+        echo -e "-h=*|--host-path=*:         Creates a new mount point at the provided location (during installation)."
+        echo -e "-s=*|--storageclass=*:      The storageclass used to provision the PVC."
+        echo -e "-c=*|--pvc-capacity=*:      The size of the PVC to provision."
         echo -e "-i=*|--rotation-interval=*: The interval (in seconds) at which to run the rotation."
-        echo -e "-k|--keep-pvc: Does not remove the existing PVC during uninstallation."
+        echo -e "-k  |--keep-pvc:            Does not remove the existing PVC during uninstallation (retain old logs)."
 }
+
+####################################
+#### Flags/Args Parsing
+####################################
 
 CMD=$1
 shift
