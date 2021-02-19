@@ -20,14 +20,58 @@ NAME=${NAME:-"pravega-fluent-bit"}
 KEEP_PVC=false
 STORAGE_CLASS=${STORAGE_CLASS:-"standard"}
 PVC_CAPACITY_GI=${PVC_CAPACITY_GI:-50}
+PVC_RECLAIM_PERCENT=${PVC_RECLAIM_PERCENT:-25}
+PVC_RECLAIM_TRIGGER=${PVC_RECLAIM_TRIGGER:-95}
 LOG_ROTATE_INTERVAL_SECONDS=${LOG_ROTATE_INTERVAL:-10}
 # The location on the underlying node where the container logs are stored.
 HOST_LOGS_PATH=${HOST_LOGS_PATH:-""}
 
 LOG_ROTATE_THRESHOLD_BYTES=${LOG_ROTATE_THRESHOLD_BYTES:-10000000}
-LOG_ROTATE_OLD_DIR=${LOG_ROTATE_OLD_DIR:-"rotated"}
+LOG_ROTATE_OLD_DIR=${LOG_ROTATE_OLD_DIR:-"."}
 LOG_ROTATE_CONF_PATH=$CONFIG_MAP_DATA/"logrotate.conf"
 LOG_EXT="gz"
+
+####################################
+#### Flags/Args Parsing
+####################################
+
+# Flags must be parsed before any of the heredocs are expanded into variables.
+CMD=$1
+shift
+
+for i in "$@"; do
+    case $i in
+        # Options.
+        -c=* | --pvc-capacity=*)
+            PVC_CAPACITY_GI="${i#*=}"
+            ;;
+        -r=* | --pvc-reclaim-percent=*)
+            PVC_RECLAIM_PERCENT="${i#*=}"
+            ;;
+        -t=* | --pvc-reclaim-trigger=*)
+            PVC_RECLAIM_TRIGGER="${i#*=}"
+            ;;
+        -h=* | --host-path=*)
+            HOST_LOGS_PATH="${i#*=}"
+            ;;
+        -s=* | --storageclass=*)
+            STORAGE_CLASS="${i#*=}"
+            ;;
+        -i=* | --rotation-interval=*)
+            LOG_ROTATE_INTERVAL_SECONDS="${i#*=}"
+            ;;
+        # Flags.
+        -k | --keep-pvc)
+            KEEP_PVC=true
+            ;;
+        *)
+            echo -e "\n${i%=*} is an invalid option, or is not provided a required value.\n"
+            usage
+            exit
+            ;;
+    esac
+done
+
 
 #################################
 # Fluent Bit Configuration
@@ -110,7 +154,6 @@ LOG_ROTATE_CONF=$(cat << EOF
     copytruncate
     size $LOG_ROTATE_THRESHOLD_BYTES
     rotate 1000
-    olddir $LOG_ROTATE_OLD_DIR
     dateext
     dateformat -%s
 }
@@ -121,9 +164,40 @@ EOF
 LOG_ROTATE_WATCH=$(cat << EOF
 #!/bin/ash
 
-# This function assumes the '-%s' dateformat will be applied. It transforms any files in the 'olddir' directory in the
-# '<logname>-<epoch>.gz' format to '<logname>-<utc>.gz'.
+mebibyte=$((1024**2))
+
+used_kib() {
+    echo \$(du -s $LOG_ROTATE_OLD_DIR | cut -f 1)
+}
+
+# Makes the assumption that rate of deletion will be never be lower than rate of accumulation.
+reclaim() {
+    start_kib=\$(used_kib)
+    total_kib=\$(($PVC_CAPACITY_GI * \$mebibyte))
+    threshold_kib=\$(((\$total_kib * $PVC_RECLAIM_TRIGGER)/100))
+    if [ \$start_kib -lt \$threshold_kib ]; then
+        return 0
+    fi
+    target_kib=\$((\$start_kib - (\$total_kib * $PVC_RECLAIM_PERCENT)/100))
+    files=\$(ls -tr $LOG_ROTATE_OLD_DIR | grep .$LOG_EXT)
+    for file in \$files; do
+        if [ \$(used_kib) -gt \$target_kib ]; then
+            rm $LOG_ROTATE_OLD_DIR/\$file
+        else
+            break
+        fi
+    done
+    end_kib=\$(used_kib)
+    if [ \$start_kib -gt \$end_kib ]; then
+        kib=\$((start_kib - end_kib))
+        echo "Reclaimed a total of \$((\$start_kib/\$mebibyte))GiB (\${start_kib}KiB). Used: \$end_kib Total: \$total_kib"
+    fi
+}
+
+# This function assumes the '-%s' dateformat will be applied. It transforms any files in the '$LOG_ROTATE_OLD_DIR'
+# directory in the '<logname>.log-<epoch>.gz' format to '<logname>-<utc>.log.gz'.
 rename() {
+  suffix=".log"
   rotated=\$(stat $MOUNT_PATH/$LOG_ROTATE_OLD_DIR/*.$LOG_EXT -t -c=%n | sed  's/=//')
 
   for file in \$rotated; do
@@ -131,7 +205,8 @@ rename() {
       if [ \$? -eq 0 ]; then
           epoch="\$(echo \$match | grep -oE '[0-9]+')"
           utc=\$(date --utc +%FT%TZ -d "@\$epoch")
-          mv \$file "\${file%\$match}-\$utc.$LOG_EXT"
+          original=\${file%\$match}
+          mv \$file "\${original%\$suffix}-\$utc\$suffix.$LOG_EXT"
       fi
   done
 }
@@ -150,6 +225,7 @@ while true; do
             break
         fi
     done;
+    reclaim
     sleep $LOG_ROTATE_INTERVAL_SECONDS
 done
 
@@ -304,46 +380,16 @@ uninstall() {
 
 usage() {
         echo -e "Usage: $0 <install, uninstall>"
-        echo -e "-h=*|--host-path=*:         Creates a new mount point at the provided location (during installation)."
-        echo -e "-s=*|--storageclass=*:      The storageclass used to provision the PVC."
-        echo -e "-c=*|--pvc-capacity=*:      The size of the PVC to provision."
-        echo -e "-i=*|--rotation-interval=*: The interval (in seconds) at which to run the rotation."
-        echo -e "-k  |--keep-pvc:            Does not remove the existing PVC during uninstallation (retain old logs)."
+        echo -e "-h=*|--host-path=*:           Creates a new mount point to provide access to the logs on the host node. default: ''"
+        echo -e "                              Specify this when the logs on the host node are not stored at: /var/lib/docker/container/..."
+        echo -e "-s=*|--storageclass=*:        The storageclass used to provision the PVC. default: standard"
+        echo -e "-c=*|--pvc-capacity=*:        The size of the PVC (in GiB) to provision. default: 50"
+        echo -e "-r=*|--pvc-reclaim-percent=*: The percent of space on the PVC to reclaim upon a reclaimation attempt. default: 25"
+        echo -e "-t=*|--pvc-reclaim-trigger=*: The percent utilization upon which to trigger a reclaimation. default: 95"
+        echo -e "-i=*|--rotation-interval=*:   The interval (in seconds) at which to run the rotation. default: 10"
+        echo -e "-k  |--keep-pvc:              Does not remove the existing PVC during uninstallation (retain old logs). default: disabled"
 }
 
-####################################
-#### Flags/Args Parsing
-####################################
-
-CMD=$1
-shift
-
-for i in "$@"; do
-    case $i in
-        # Options.
-        -c=* | --pvc-capacity=*)
-            PVC_CAPACITY_GI="${i#*=}"
-            ;;
-        -h=* | --host-path=*)
-            HOST_LOGS_PATH="${i#*=}"
-            ;;
-        -s=* | --storageclass=*)
-            STORAGE_CLASS="${i#*=}"
-            ;;
-        -i=* | --rotation-interval=*)
-            LOG_ROTATE_INTERVAL_SECONDS="${i#*=}"
-            ;;
-        # Flags.
-        -k | --keep-pvc)
-            KEEP_PVC=true
-            ;;
-        *)
-            echo -e "\n${i%=*} is an invalid option, or is not provided a required value.\n"
-            usage
-            exit
-            ;;
-    esac
-done
 
 case $CMD in
     install)
