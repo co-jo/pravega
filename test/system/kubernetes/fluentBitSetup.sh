@@ -24,18 +24,17 @@ KEEP_PVC=false
 NAME=${NAME:-"pravega-fluent-bit"}
 
 # Configurable flag parameters.
-FLUENT_IMAGE_REPO=${FLUENT_IMAGE_REPO:-"fluent/fluent-bit"}
-FLUENT_BIT_IMAGE_TAG=${FLUENT_BIT_IMAGE_TAG:-"latest"}
-FLUENT_BIT_STORAGE_CLASS=${FLUENT_BIT_STORAGE_CLASS:-"standard"}
-FLUENT_BIT_PVC_CAPACITY=${FLUENT_BIT_PVC_CAPACITY:-50}
-FLUENT_BIT_RECLAIM_PERCENT=${FLUENT_BIT_RECLAIM_PERCENT:-25}
-FLUENT_BIT_RECLAIM_TRIGGER_PERCENT=${FLUENT_BIT_RECLAIM_TRIGGER_PERCENT:-95}
-FLUENT_BIT_ROTATE_INTERVAL_SECONDS=${LOG_ROTATE_INTERVAL:-10}
+KEEP_PVC=false
+STORAGE_CLASS=${STORAGE_CLASS:-"standard"}
+PVC_CAPACITY_GI=${PVC_CAPACITY_GI:-50}
+PVC_RECLAIM_PERCENT=${PVC_RECLAIM_PERCENT:-25}
+PVC_RECLAIM_TRIGGER=${PVC_RECLAIM_TRIGGER:-95}
+LOG_ROTATE_INTERVAL_SECONDS=${LOG_ROTATE_INTERVAL:-10}
 # The location on the underlying node where the container logs are stored.
 HOST_LOGS_PATH=${HOST_LOGS_PATH:-""}
 
 LOG_ROTATE_THRESHOLD_BYTES=${LOG_ROTATE_THRESHOLD_BYTES:-10000000}
-LOG_ROTATE_OLD_DIR=${LOG_ROTATE_OLD_DIR:-"rotated"}
+LOG_ROTATE_OLD_DIR=${LOG_ROTATE_OLD_DIR:-"."}
 LOG_ROTATE_CONF_PATH=$CONFIG_MAP_DATA/"logrotate.conf"
 LOG_EXT="gz"
 
@@ -44,79 +43,41 @@ LOG_EXT="gz"
 ####################################
 
 # Flags must be parsed before any of the heredocs are expanded into variables.
-set +u
 CMD=$1
-set -u
 shift
 
 for i in "$@"; do
     case $i in
         # Options.
         -c=* | --pvc-capacity=*)
-        FLUENT_BIT_PVC_CAPACITY="${i#*=}"
-        ;;
-    -r=* | --pvc-reclaim-percent=*)
-        FLUENT_BIT_RECLAIM_PERCENT="${i#*=}"
-        ;;
-    -t=* | --pvc-reclaim-trigger=*)
-        FLUENT_BIT_RECLAIM_TRIGGER_PERCENT="${i#*=}"
-        ;;
-    -h=* | --host-path=*)
-        FLUENT_BIT_HOST_LOGS_PATH="${i#*=}"
-        ;;
-    -s=* | --storageclass=*)
-        FLUENT_BIT_STORAGE_CLASS="${i#*=}"
-        ;;
-    -i=* | --rotation-interval=*)
-        FLUENT_BIT_ROTATE_INTERVAL_SECONDS="${i#*=}"
-        ;;
-    -n=* | --namespace=*)
-        NAMESPACE="${i#*=}"
-        ;;
-    -p=* | --export-path=*)
-        FLUENT_BIT_EXPORT_PATH="${i#*=}"
-        ;;
-    *)
-        echo -e "\n${i%=*} is an invalid option, or is not provided a required value.\n"
-        usage
-        exit
-        ;;
-esac
+            PVC_CAPACITY_GI="${i#*=}"
+            ;;
+        -r=* | --pvc-reclaim-percent=*)
+            PVC_RECLAIM_PERCENT="${i#*=}"
+            ;;
+        -t=* | --pvc-reclaim-trigger=*)
+            PVC_RECLAIM_TRIGGER="${i#*=}"
+            ;;
+        -h=* | --host-path=*)
+            HOST_LOGS_PATH="${i#*=}"
+            ;;
+        -s=* | --storageclass=*)
+            STORAGE_CLASS="${i#*=}"
+            ;;
+        -i=* | --rotation-interval=*)
+            LOG_ROTATE_INTERVAL_SECONDS="${i#*=}"
+            ;;
+        # Flags.
+        -k | --keep-pvc)
+            KEEP_PVC=true
+            ;;
+        *)
+            echo -e "\n${i%=*} is an invalid option, or is not provided a required value.\n"
+            usage
+            exit
+            ;;
+    esac
 done
-
-# 'fetch_logs' requires the log files are named according to the
-# '<pod-name>_<namespace>_<container-name>-<container-id>.log' convention, which is done by default
-# via the tag expansion in the [INPUT] stanza.
-fetch_logs() {
-    if [ ! -d $FLUENT_BIT_EXPORT_PATH ]; then
-        mkdir -p $FLUENT_BIT_EXPORT_PATH
-    fi
-    pods=$@
-    pravega_log_pod=$(kubectl get pods -l "app=$DEPLOYMENT_NAME" -o custom-columns=:.metadata.name --no-headers)
-    logs=$(kubectl exec $pravega_log_pod -- ls "$MOUNT_PATH")
-    # For now, assume that each log will have a prefix of 'kube.var.log.containers'.
-    for pod in ${pods[@]}; do
-        matches=$(echo "$logs" | grep "${pod}_$NAMESPACE")
-        for match in ${matches[@]}; do
-            kubectl cp $pravega_log_pod:$MOUNT_PATH/$match $FLUENT_BIT_EXPORT_PATH/$match -n=$NAMESPACE
-        done;
-    done
-}
-
-# Fetches logs from the pods of the BookKeeperCluster, PravegaCluster and ZooKeeperCluster.
-fetch_pravega_logs() {
-    zookeeper=$(kubectl get zookeepercluster -n=$NAMESPACE -o json | jq '.items[0].metadata.labels["app.kubernetes.io/name"]' | sed 's/"//g')
-    bookkeeper=$(kubectl get bookkeepercluster -n=$NAMESPACE -o json | jq '.items[0].metadata.labels["app.kubernetes.io/name"]' | sed 's/"//g')
-    pravega=$(kubectl get pravegacluster -n=$NAMESPACE -o json | jq '.items[0].metadata.labels["app.kubernetes.io/name"]' | sed 's/"//g')
-    pods=$(kubectl get pods -l "app in ($zookeeper,$bookkeeper,$pravega)" -n=$NAMESPACE -o custom-columns=:.metadata.name --no-headers)
-    fetch_logs "$pods"
-}
-
-# Fetches logs of *all* pods in the given namespace.
-fetch_all_logs() {
-    pods=$(kubectl get pods -n="$NAMESPACE" -o custom-columns=:.metadata.name --no-headers)
-    fetch_logs "$pods"
-}
 
 #################################
 # Fluent Bit Configuration
@@ -217,6 +178,47 @@ used_kib() {
 }
 
 # Makes the assumption that rate of deletion will be never be lower than rate of accumulation.
+reclaim() {
+    start_kib=\$(used_kib)
+    total_kib=\$(($PVC_CAPACITY_GI * \$mebibyte))
+    threshold_kib=\$(((\$total_kib * $PVC_RECLAIM_TRIGGER)/100))
+    if [ \$start_kib -lt \$threshold_kib ]; then
+        return 0
+    fi
+    target_kib=\$((\$start_kib - (\$total_kib * $PVC_RECLAIM_PERCENT)/100))
+    files=\$(ls -tr $LOG_ROTATE_OLD_DIR | grep .$LOG_EXT)
+    for file in \$files; do
+        if [ \$(used_kib) -gt \$target_kib ]; then
+            rm $LOG_ROTATE_OLD_DIR/\$file
+        else
+            break
+        fi
+    done
+    end_kib=\$(used_kib)
+    if [ \$start_kib -gt \$end_kib ]; then
+        kib=\$((start_kib - end_kib))
+        echo "Reclaimed a total of \$((\$start_kib/\$mebibyte))GiB (\${start_kib}KiB). Used: \$end_kib Total: \$total_kib"
+    fi
+}
+
+# This function assumes the '-%s' dateformat will be applied. It transforms any files in the '$LOG_ROTATE_OLD_DIR'
+# directory in the '<logname>.log-<epoch>.gz' format to '<logname>-<utc>.log.gz'.
+rename() {
+  suffix=".log"
+  rotated=\$(stat $MOUNT_PATH/$LOG_ROTATE_OLD_DIR/*.$LOG_EXT -t -c=%n | sed  's/=//')
+
+  for file in \$rotated; do
+      match=\$(echo \$file | grep -oE "\-[0-9]+\.$LOG_EXT\$")
+      if [ \$? -eq 0 ]; then
+          epoch="\$(echo \$match | grep -oE '[0-9]+')"
+          utc=\$(date --utc +%FT%TZ -d "@\$epoch")
+          original=\${file%\$match}
+          mv \$file "\${original%\$suffix}-\$utc\$suffix.$LOG_EXT"
+      fi
+  done
+}
+
+# Makes the assumption that rate of deletion will be never be lower than rate of accumulation.
 # * Currently only compressed files are deleted. Should we also delete uncompressed (in the case of
 #   many small files that are smaller than threshold)?
 reclaim() {
@@ -235,100 +237,10 @@ reclaim() {
         else
             break
         fi
-    done
-    end_kib=\$(used_kib)
-    if [ \$start_kib -gt \$end_kib ]; then
-        kib=\$((start_kib - end_kib))
-        utilization=\$(((\$end_kib * 100)/\$total_kib))
-        echo "Reclaimed a total of \$((\$kib/\$mebibyte))GiB (\${kib}KiB). Total: \$total_kib Used: \$end_kib (\${utilization}%)"
-    fi
-}
-
-# This function assumes the '-%s' dateformat will be applied. It transforms any files in the '$LOG_ROTATE_OLD_DIR'
-# directory in the '<logname>.log-<epoch>.gz' format to '<logname>-<utc>.log.gz'.
-rename() {
-  suffix=".log"
-  name=\$1
-  match=\$(echo \$name | grep -oE "\-[0-9]+\.$LOG_EXT\$")
-  if [ \$? -eq 0 ]; then
-    epoch="\$(echo \$match | grep -oE '[0-9]+')"
-    utc=\$(date --utc +%FT%TZ -d "@\$epoch")
-    original=\${name%\$match}
-    echo "Renaming \$name -> \${original%\$suffix}-\$utc\$suffix.$LOG_EXT"
-    mv \$name "\${original%\$suffix}-\$utc\$suffix.$LOG_EXT"
-  fi
-}
-
-# 'orphans' handles the case where a log file was produced by an earlier container for a given pod that was unable to be
-# compressed. This can occur if a container in a pod (or the pod itself) has been restarted and there are logs 'leftover'
-# that will never receive anymore appends and should be compressed.
-orphans() {
-    count=0
-    files=\$(stat $MOUNT_PATH/$LOG_ROTATE_OLD_DIR/*.log -t -c=%n  | sed 's/=//g')
-    for file in \$files; do
-        # File may have been moved.
-        if [ ! -f "\$file" ]; then
-            continue
-        fi
-        prefix=\${file%-*.log}
-        # Files with a shared prefix.
-        shared=\$(stat "\$prefix"*.log -t -c="%Y,%n" | sed 's/=//g' | sort)
-        previous=''
-        # shared will contain a list of files with the same prefix sorted (by time) in ascending order.
-        # The most recent file with said prefix is not compressed, in case it is actively being written to.
-        for current in \$shared; do
-            if [ -n "\$previous" ]; then
-                : \$((count+=1))
-                epoch=\${previous%%,*}
-                name=\${previous#*,}
-                # Compress and redirect to file as if it was compressed by logrotate.
-                echo "Compressing \$name -> \$name.log-\$epoch.gz"
-                gzip -c \$name > "\$name.log-\$epoch.gz"
-                rm \$name
-                fi
-            previous="\$current"
-        done
-    done
-    if [ \$count -gt 0 ]; then
-        echo "Found \$count inactive logs -- compressing."
-    fi
-}
-
-
-watch() {
-    # Permissions of containing directory changed to please logrotate.
-    chmod o-wx .
-    mkdir -p $MOUNT_PATH/$LOG_ROTATE_OLD_DIR
-
-    while true; do
-        start=\$(date +%s%3N)
-        logrotate $LOG_ROTATE_CONF_PATH
-        # Catch any 'orphans' -- those .log files that are from an old/restarted containers and no longer
-        # will receive any new appends.
-        orphans
-        # Rotated but not renamed (i.e. the files that were *just* rotated).
-        rotated=\$(stat $MOUNT_PATH/$LOG_ROTATE_OLD_DIR/*.$LOG_EXT -t -c=%n 2>/dev/null | sed  's/=//' | grep -E "\\-[0-9]+.$LOG_EXT\$")
-        for name in \$rotated; do
-            rename "\$name"
-        done;
-        reclaim
-        end=\$(date +%s%3N)
-        if [ -n "\$rotated" ]; then
-            echo "Rotation cycle completed in \$((\$end-\$start)) milliseconds."
-        fi
-        sleep $FLUENT_BIT_ROTATE_INTERVAL_SECONDS
-    done
-}
-
-cmd=\$1
-case \$cmd in
-    nop)
-        :
-        ;;
-    *)
-        watch
-        ;;
-esac
+    done;
+    reclaim
+    sleep $LOG_ROTATE_INTERVAL_SECONDS
+done
 
 EOF
 )
@@ -492,26 +404,17 @@ EOF
     }
 
 usage() {
-    echo -e "Usage: $0 [CMD] [OPTION...]>"
-    echo -e ""
-    echo -e "install: Deploys a configured fluent-bit deployment for some PravegaCluster."
-    echo -e "\t-h=*|--host-path=*:           Creates a new mount point to provide access to the logs on the host node. default: ''"
-    echo -e "\t                              Specify this when the logs on the host node are not stored at: /var/lib/docker/container/..."
-    echo -e "\t-s=*|--storageclass=*:        The storageclass used to provision the PVC. default: standard"
-    echo -e "\t-c=*|--pvc-capacity=*:        The size of the PVC (in GiB) to provision. default: 50"
-    echo -e "\t-r=*|--pvc-reclaim-percent=*: The percent of space on the PVC to reclaim upon a reclaimation attempt. default: 25"
-    echo -e "\t-t=*|--pvc-reclaim-trigger=*: The percent utilization upon which to trigger a reclaimation. default: 95"
-    echo -e "\t-i=*|--rotation-interval=*:   The interval (in seconds) at which to run the rotation. default: 10"
-    echo -e ""
-    echo -e "uninstall: Removes any existing Pravega fluent-bit deployment."
-    echo -e ""
-    echo -e "fetch-logs: Copies log files produced by the PravegaCluster (on a given namespace) to a local directory."
-    echo -e "fetch-all-logs: Copies log files from *all* pods in a given namespace."
-    echo -e "\t-n=*|--namespace=*:          The namespace of the PravegaCluster/Pods. default: default"
-    echo -e "\t-p=*|--export-path=*:        The path to save the logs to. default: /tmp/pravega-logs"
-    echo -e ""
-    echo -e "help: Displays this message."
+        echo -e "Usage: $0 <install, uninstall>"
+        echo -e "-h=*|--host-path=*:           Creates a new mount point to provide access to the logs on the host node. default: ''"
+        echo -e "                              Specify this when the logs on the host node are not stored at: /var/lib/docker/container/..."
+        echo -e "-s=*|--storageclass=*:        The storageclass used to provision the PVC. default: standard"
+        echo -e "-c=*|--pvc-capacity=*:        The size of the PVC (in GiB) to provision. default: 50"
+        echo -e "-r=*|--pvc-reclaim-percent=*: The percent of space on the PVC to reclaim upon a reclaimation attempt. default: 25"
+        echo -e "-t=*|--pvc-reclaim-trigger=*: The percent utilization upon which to trigger a reclaimation. default: 95"
+        echo -e "-i=*|--rotation-interval=*:   The interval (in seconds) at which to run the rotation. default: 10"
+        echo -e "-k  |--keep-pvc:              Does not remove the existing PVC during uninstallation (retain old logs). default: disabled"
 }
+
 
 case $CMD in
     install)
