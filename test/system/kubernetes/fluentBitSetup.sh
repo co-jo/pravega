@@ -197,7 +197,8 @@ reclaim() {
     end_kib=\$(used_kib)
     if [ \$start_kib -gt \$end_kib ]; then
         kib=\$((start_kib - end_kib))
-        echo "Reclaimed a total of \$((\$start_kib/\$mebibyte))GiB (\${start_kib}KiB). Used: \$end_kib Total: \$total_kib"
+        utilization=\$(((\$end_kib * 100)/\$total_kib))
+        echo "Reclaimed a total of \$((\$kib/\$mebibyte))GiB (\${kib}KiB). Total: \$total_kib Used: \$end_kib (\${utilization}%)"
     fi
 }
 
