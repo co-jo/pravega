@@ -999,27 +999,21 @@ project('test:system') {
         dependsOn 'jar'
 
         environment "tier2Type", System.getProperty("tier2Type", "nfs")
-        environment "pravegaOperatorVersion",System.getProperty("pravegaOperatorVersion", "latest")
-        environment "bookkeeperOperatorVersion",System.getProperty("bookkeeperOperatorVersion", "latest")
-        environment "zookeeperOperatorVersion",System.getProperty("zookeeperOperatorVersion", "latest")
+        environment "pravegaOperatorVersion", System.getProperty("pravegaOperatorVersion", "latest")
+        environment "bookkeeperOperatorVersion", System.getProperty("bookkeeperOperatorVersion", "latest")
+        environment "zookeeperOperatorVersion", System.getProperty("zookeeperOperatorVersion", "latest")
         // The below properties are used to to specify the pravega published chart and repository to deploy pravega,bookkeeper & zookkeeper operators using helm docker image properties
-        environment "publishedChartName",System.getProperty("publishedChartName", "pravega")
-        environment "helmRepository",System.getProperty("helmRepository", "https://charts.pravega.io")
+        environment "publishedChartName", System.getProperty("publishedChartName", "pravega")
+        environment "helmRepository", System.getProperty("helmRepository", "https://charts.pravega.io")
         // To update config map with desired pravega version
-        environment "desiredPravegaCMVersion",System.getProperty("desiredPravegaCMVersion", "0.9.0")
-        environment "desiredBookkeeperCMVersion",System.getProperty("desiredBookkeeperCMVersion", "0.9.0")
+        environment "desiredPravegaCMVersion", System.getProperty("desiredPravegaCMVersion", "0.9.0")
+        environment "desiredBookkeeperCMVersion", System.getProperty("desiredBookkeeperCMVersion", "0.9.0")
         environment "tlsEnabled", System.getProperty("tlsEnabled", "false")
 
         commandLine './kubernetes/setupTestPod.sh'
     }
 
-    task runFluentBitUninstall(type: Exec) {
-        environment 'KEEP_PVC', System.getProperty("keepSystemTestLogs", "")
-        commandLine './kubernetes/fluentBitSetup.sh', 'uninstall'
-    }
-
     task runFluentBitInstall(type: Exec) {
-        dependsOn 'runFluentBitUninstall'
         environment 'HOST_LOGS_PATH', System.getProperty("k8HostLogPath", "")
         commandLine './kubernetes/fluentBitSetup.sh', 'install'
     }
@@ -1049,21 +1043,21 @@ project('test:system') {
         systemProperty "tier2Type", System.getProperty("tier2Type", "nfs")
         // tier2 Configuration, specified as comma seperated key values k1=v1,k2=v2
         systemProperty "tier2Config", System.getProperty("tier2Config")
-        systemProperty "pravegaOperatorVersion",System.getProperty("pravegaOperatorVersion", "latest")
-        systemProperty "bookkeeperOperatorVersion",System.getProperty("bookkeeperOperatorVersion", "latest")
-        systemProperty "zookeeperOperatorVersion",System.getProperty("zookeeperOperatorVersion", "latest")
-        systemProperty "desiredPravegaCMVersion",System.getProperty("desiredPravegaCMVersion", "0.9.0")
-        systemProperty "desiredBookkeeperCMVersion",System.getProperty("desiredBookkeeperCMVersion", "0.9.0")
-        systemProperty "publishedChartName",System.getProperty("publishedChartName", "pravega")
-        systemProperty "helmRepository",System.getProperty("helmRepository", "pravega")
+        systemProperty "pravegaOperatorVersion", System.getProperty("pravegaOperatorVersion", "latest")
+        systemProperty "bookkeeperOperatorVersion", System.getProperty("bookkeeperOperatorVersion", "latest")
+        systemProperty "zookeeperOperatorVersion", System.getProperty("zookeeperOperatorVersion", "latest")
+        systemProperty "desiredPravegaCMVersion", System.getProperty("desiredPravegaCMVersion", "0.9.0")
+        systemProperty "desiredBookkeeperCMVersion", System.getProperty("desiredBookkeeperCMVersion", "0.9.0")
+        systemProperty "publishedChartName", System.getProperty("publishedChartName", "pravega")
+        systemProperty "helmRepository", System.getProperty("helmRepository", "pravega")
 
         // target versions wrt Upgrade for all operators & clusters
-        systemProperty "targetPravegaOperatorVersion",System.getProperty("targetPravegaOperatorVersion", "latest")
-        systemProperty "targetBookkeeperOperatorVersion",System.getProperty("targetBookkeeperOperatorVersion", "latest")
-        systemProperty "targetZookeeperOperatorVersion",System.getProperty("targetZookeeperOperatorVersion", "latest")
-        systemProperty "targetPravegaVersion",System.getProperty("targetPravegaVersion", "latest")
-        systemProperty "targetBookkeeperVersion",System.getProperty("targetBookkeeperVersion", "latest")
-        systemProperty "targetZookeeperVersion",System.getProperty("targetZookeeperVersion", "latest")
+        systemProperty "targetPravegaOperatorVersion", System.getProperty("targetPravegaOperatorVersion", "latest")
+        systemProperty "targetBookkeeperOperatorVersion", System.getProperty("targetBookkeeperOperatorVersion", "latest")
+        systemProperty "targetZookeeperOperatorVersion", System.getProperty("targetZookeeperOperatorVersion", "latest")
+        systemProperty "targetPravegaVersion", System.getProperty("targetPravegaVersion", "latest")
+        systemProperty "targetBookkeeperVersion", System.getProperty("targetBookkeeperVersion", "latest")
+        systemProperty "targetZookeeperVersion", System.getProperty("targetZookeeperVersion", "latest")
         //testPodImage , default is openjdk:8u181-jre-alpine
         systemProperty "testPodImage", System.getProperty("testPodImage", "openjdk:8u181-jre-alpine")
 
