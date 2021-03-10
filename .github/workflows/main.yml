@@ -50,27 +50,27 @@ env:
 # Finally, a "snapshot" job is triggered only for pushes (commits) to master and release branches, which publishes all
 # artifacts to a public repository.
 jobs:
-  #build:
-  #  name: Build
-  #  runs-on: ubuntu-20.04
-  #  steps:
-  #    - name: Build Information
-  #      run: echo Building a '${{ github.event_name }}' for target '${{ github.ref }}'.
-  #    - name: Checkout
-  #      uses: actions/checkout@v1
-  #    - name: Gradle & Maven Cache
-  #      uses: actions/cache@v2.1.0
-  #      with:
-  #        path: ${{env.GLOBAL_CACHE_PATH}}
-  #        key: ${{env.GLOBAL_CACHE_KEY}}
-  #        restore-keys: ${{env.GLOBAL_CACHE_RESTORE_KEYS}}
-  #    - name: Build Output Cache
-  #      uses: actions/cache@v2.1.0
-  #      with:
-  #        path: ${{env.BUILD_CACHE_PATH}}
-  #        key: ${{github.run_id}}
-  #    - name: Compile & Static Analysis
-  #      run: ./gradlew jar compileTest rat checkstyleMain checkstyleTest spotbugsMain spotbugsTest --parallel ${{env.GRADLE_OPTS}}
+  build:
+    name: Build
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Build Information
+        run: echo Building a '${{ github.event_name }}' for target '${{ github.ref }}'.
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Gradle & Maven Cache
+        uses: actions/cache@v2.1.0
+        with:
+          path: ${{env.GLOBAL_CACHE_PATH}}
+          key: ${{env.GLOBAL_CACHE_KEY}}
+          restore-keys: ${{env.GLOBAL_CACHE_RESTORE_KEYS}}
+      - name: Build Output Cache
+        uses: actions/cache@v2.1.0
+        with:
+         path: ${{env.BUILD_CACHE_PATH}}
+         key: ${{github.run_id}}
+      - name: Compile & Static Analysis
+        run: ./gradlew jar compileTest rat checkstyleMain checkstyleTest spotbugsMain spotbugsTest --parallel ${{env.GRADLE_OPTS}}
 
   #unit_client:
   #  name: Client Unit Tests
