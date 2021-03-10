@@ -28,6 +28,11 @@ public class NullDynamicLogger implements DynamicLogger {
     }
 
     @Override
+    public void freezeCounters(String name, String... tags) {
+        // nop
+    }
+
+    @Override
     public <T extends Number> void reportGaugeValue(String name, T value, String... tags) {
         // nop
     }
@@ -38,12 +43,22 @@ public class NullDynamicLogger implements DynamicLogger {
     }
 
     @Override
+    public void freezeGauges(String name, String... tags) {
+        // nop
+    }
+
+    @Override
     public void recordMeterEvents(String name, long number, String... tags) {
         // nop
     }
 
     @Override
     public void freezeMeter(String name, String... tags) {
-        // no-op
+        // nop
+    }
+
+    @Override
+    public void freezeMeters(String name, String... tags) {
+        // nop
     }
 }

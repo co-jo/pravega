@@ -17,6 +17,8 @@ import io.micrometer.core.instrument.DistributionSummary;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Collection;
+
 /**
  * Utility class to access metrics stored in the local cache of the metrics registry.
  */
@@ -37,5 +39,17 @@ public class MetricRegistryUtils {
 
     public static Timer getTimer(String metricsName, String... tags) {
         return Metrics.globalRegistry.find(metricsName).tags(tags).timer();
+    }
+
+    public static Collection<Counter> getCounters(String metricsName, String... tags) {
+        return Metrics.globalRegistry.find(metricsName).tags(tags).counters();
+    }
+
+    public static Collection<DistributionSummary> getMeters(String metricsName, String... tags) {
+        return Metrics.globalRegistry.find(metricsName).tags(tags).summaries();
+    }
+
+    public static Collection<Gauge> getGauges(String metricsName, String... tags) {
+        return Metrics.globalRegistry.find(metricsName).tags(tags).gauges();
     }
 }

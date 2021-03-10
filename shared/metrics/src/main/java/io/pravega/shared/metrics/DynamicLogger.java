@@ -41,6 +41,14 @@ public interface DynamicLogger {
     void freezeCounter(String name, String... tags);
 
     /**
+     * Notifies that the counter will not be updated.
+     *
+     * @param name the name of counter
+     * @param tags the tags associated with the Counter.
+     */
+    void freezeCounters(String name, String... tags);
+
+    /**
      * Report gauge value.
      *
      * @param <T>   the type of value
@@ -59,6 +67,14 @@ public interface DynamicLogger {
     void freezeGaugeValue(String name, String... tags);
 
     /**
+     * Notifies that the gauge value will not be updated.
+     *
+     * @param name  the name of gauge
+     * @param tags  the tags associated with the Gauge.
+     */
+    void freezeGauges(String name, String... tags);
+
+    /**
      * Record the occurrence of a given number of events in Meter.
      *
      * @param name   the name of Meter
@@ -74,4 +90,12 @@ public interface DynamicLogger {
      * @param tags  the tags associated with the meter.
      */
     void freezeMeter(String name, String... tags);
+
+    /**
+     * Notifies that the meter will no longer be reported.
+     *
+     * @param name  the name of the meter
+     * @param tags  the tags associated with the meter.
+     */
+    void freezeMeters(String name, String... tags);
 }

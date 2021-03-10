@@ -38,6 +38,11 @@ public class DynamicLoggerProxy implements DynamicLogger {
     }
 
     @Override
+    public void freezeCounters(String name, String... tags) {
+        this.instance.get().freezeCounters(name, tags);
+    }
+
+    @Override
     public <T extends Number> void reportGaugeValue(String name, T value, String... tags) {
         this.instance.get().reportGaugeValue(name, value, tags);
     }
@@ -48,6 +53,11 @@ public class DynamicLoggerProxy implements DynamicLogger {
     }
 
     @Override
+    public void freezeGauges(String name, String... tags) {
+        this.instance.get().freezeGauges(name, tags);
+    }
+
+    @Override
     public void recordMeterEvents(String name, long number, String... tags) {
         this.instance.get().recordMeterEvents(name, number, tags);
     }
@@ -55,6 +65,11 @@ public class DynamicLoggerProxy implements DynamicLogger {
     @Override
     public void freezeMeter(String name, String... tags) {
         this.instance.get().freezeMeter(name, tags);
+    }
+
+    @Override
+    public void freezeMeters(String name, String... tags) {
+        this.instance.get().freezeMeters(name, tags);
     }
 
 }

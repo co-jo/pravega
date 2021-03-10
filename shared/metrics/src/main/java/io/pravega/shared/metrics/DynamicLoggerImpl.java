@@ -9,15 +9,22 @@
  */
 package io.pravega.shared.metrics;
 
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.pravega.common.Exceptions;
 import io.pravega.common.util.SimpleCache;
 import io.pravega.shared.MetricsNames;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 import static io.pravega.shared.MetricsNames.metricKey;
+import static io.pravega.shared.metrics.MetricRegistryUtils.*;
 
 @Slf4j
 class DynamicLoggerImpl implements DynamicLogger {
@@ -91,13 +98,45 @@ class DynamicLoggerImpl implements DynamicLogger {
     }
 
     @Override
+    public void freezeCounters(String name, String... tags) {
+        Exceptions.checkNotNullOrEmpty(name, "name");
+        Collection<io.micrometer.core.instrument.Counter> meters = getCounters(name, tags);
+        freeze(meters, this::freezeCounter);
+    }
+
+    @Override
     public void freezeGaugeValue(String name, String... tags) {
         freeze(this.gaugesCache, name, tags);
     }
 
     @Override
+    public void freezeGauges(String name, String... tags) {
+        Exceptions.checkNotNullOrEmpty(name, "name");
+        Collection<io.micrometer.core.instrument.Gauge> meters = getGauges(name, tags);
+        freeze(meters, this::freezeGaugeValue);
+    }
+
+    @Override
     public void freezeMeter(String name, String... tags) {
         freeze(this.metersCache, name, tags);
+    }
+
+    @Override
+    public void freezeMeters(String name, String... tags) {
+        Exceptions.checkNotNullOrEmpty(name, "name");
+        Collection<DistributionSummary> meters = getMeters(name, tags);
+        freeze(meters, this::freezeMeter);
+    }
+
+    private <T extends io.micrometer.core.instrument.Meter> void freeze(Collection<T> meters, BiConsumer<String, String[]> dispatch) {
+        String[] arr = new String[meters.size() * 2];
+        for (T meter : meters) {
+            meter.getId().getTags().stream()
+                    .flatMap(tag -> Stream.of(tag.getKey(), tag.getValue()))
+                    .collect(Collectors.toList())
+                    .toArray(arr);
+            dispatch.accept(meter.getId().getName(), arr);
+        }
     }
 
     private <T extends Metric> void freeze(SimpleCache<String, T> cache, String name, String... tags) {
