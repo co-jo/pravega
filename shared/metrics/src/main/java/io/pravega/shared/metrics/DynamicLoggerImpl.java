@@ -129,8 +129,8 @@ class DynamicLoggerImpl implements DynamicLogger {
     }
 
     private <T extends io.micrometer.core.instrument.Meter> void freeze(Collection<T> meters, BiConsumer<String, String[]> dispatch) {
-        String[] arr = new String[meters.size() * 2];
         for (T meter : meters) {
+            String[] arr = new String[meter.getId().getTags().size()];
             meter.getId().getTags().stream()
                     .flatMap(tag -> Stream.of(tag.getKey(), tag.getValue()))
                     .collect(Collectors.toList())
