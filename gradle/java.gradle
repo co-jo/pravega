@@ -82,14 +82,14 @@ plugins.withId('java') {
     }
 
     tasks.withType(Test) {
-        systemProperties 'logback.configurationFile' : new File(buildDir,'resources/test/logback.xml').absolutePath
+        systemProperties 'logback.configurationFile' : new File(buildDir,'resources/test/logback-test.xml').absolutePath
         systemProperties 'ThreadLeakDetectionLevel' : 'Aggressive' // Catch all ThreadPool Leaks and stop the build if any are found.
-        testLogging.showStandardStreams = false
+        testLogging.showStandardStreams = true
         testLogging.exceptionFormat = "FULL"
         testLogging.showCauses = true
         testLogging.showExceptions = true
         testLogging.showStackTraces = true
-        testLogging.events = ["FAILED"]
+        testLogging.events = ["FAILED", "STANDARD_OUT", "STANDARD_ERROR"]
         maxParallelForks = System.properties['maxParallelForks'] ? System.properties['maxParallelForks'].toInteger() : 1
         minHeapSize = "128m"
         maxHeapSize = "512m"
