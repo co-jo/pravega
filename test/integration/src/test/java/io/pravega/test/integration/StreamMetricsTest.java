@@ -229,9 +229,10 @@ public class StreamMetricsTest {
         Collection<Counter> counters = MetricRegistryUtils.getCounters(MetricsNames.CREATE_SCOPE_FAILED);
         log.info("Counters@@@: {}", counters.size());
         for (val counter : counters) {
-            log.info("counter: {}", counter.getId());
+            log.info("counter: {} {}", counter.getId(), counter.count());
         }
         Counter counter = MetricRegistryUtils.getCounter(MetricsNames.CREATE_SCOPE_FAILED);
+        log.info("actual counter: {} {}", counter.getId(), counter.count());
         assertEquals(1, (long) counter.count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.CREATE_STREAM_FAILED).count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.DELETE_STREAM_FAILED).count());
