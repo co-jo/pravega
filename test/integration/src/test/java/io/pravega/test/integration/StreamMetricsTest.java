@@ -160,6 +160,11 @@ public class StreamMetricsTest {
 
     @Test(timeout = 30000)
     public void testStreamsAndScopesBasicMetricsTests() throws Exception {
+        Collection<Counter> counters = MetricRegistryUtils.getCounters(MetricsNames.CREATE_SCOPE_FAILED);
+        log.info("Counters Before@@@: {}", counters.size());
+        for (val counter : counters) {
+            log.info("counter Before: {} {}", counter.getId(), counter.count());
+        }
         String scopeName = "scopeBasic";
         String streamName = "streamBasic";
 
