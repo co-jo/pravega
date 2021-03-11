@@ -17,7 +17,11 @@
         </encoder>
     </appender>
 
-    <root level="INFO">
+    <logger name="io.pravega.test.integration.StreamMetricsTest" level="TRACE">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <root level="OFF">
         <appender-ref ref="STDOUT"/>
     </root>
 </configuration>

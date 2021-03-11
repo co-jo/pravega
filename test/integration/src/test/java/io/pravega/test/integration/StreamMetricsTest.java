@@ -10,6 +10,7 @@
 package io.pravega.test.integration;
 
 import com.google.common.collect.ImmutableMap;
+import io.micrometer.core.instrument.Counter;
 import io.pravega.client.ClientConfig;
 import io.pravega.client.EventStreamClientFactory;
 import io.pravega.client.control.impl.Controller;
@@ -47,12 +48,14 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
+import lombok.val;
 import org.apache.curator.test.TestingServer;
 import org.junit.After;
 import org.junit.Before;
@@ -223,8 +226,13 @@ public class StreamMetricsTest {
         StreamMetrics.getInstance().deleteReaderGroupFailed("failedRG", "failedRG");
         StreamMetrics.getInstance().updateReaderGroupFailed("failedRG", "failedRG");
         StreamMetrics.getInstance().updateTruncationSCFailed("failedRG", "failedRG");
-        log.info("StreamMetricsTest CurrentThread - {}", Thread.currentThread().getId());
-        assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.CREATE_SCOPE_FAILED).count());
+        Collection<Counter> counters = MetricRegistryUtils.getCounters(MetricsNames.CREATE_SCOPE_FAILED);
+        log.info("Counters@@@: {}", counters.size());
+        for (val counter : counters) {
+            log.info("counter: {}", counter);
+        }
+        Counter counter = MetricRegistryUtils.getCounter(MetricsNames.CREATE_SCOPE_FAILED);
+        assertEquals(1, (long) counter.count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.CREATE_STREAM_FAILED).count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.DELETE_STREAM_FAILED).count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.DELETE_SCOPE_FAILED).count());
