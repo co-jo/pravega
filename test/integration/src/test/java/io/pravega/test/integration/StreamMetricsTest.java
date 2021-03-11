@@ -229,7 +229,7 @@ public class StreamMetricsTest {
         Collection<Counter> counters = MetricRegistryUtils.getCounters(MetricsNames.CREATE_SCOPE_FAILED);
         log.info("Counters@@@: {}", counters.size());
         for (val counter : counters) {
-            log.info("counter: {}", counter);
+            log.info("counter: {}", counter.getId());
         }
         Counter counter = MetricRegistryUtils.getCounter(MetricsNames.CREATE_SCOPE_FAILED);
         assertEquals(1, (long) counter.count());
