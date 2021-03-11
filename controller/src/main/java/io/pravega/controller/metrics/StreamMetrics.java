@@ -13,6 +13,7 @@ import com.google.common.base.Preconditions;
 import io.pravega.shared.metrics.OpStatsLogger;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.extern.slf4j.Slf4j;
 
 import static io.pravega.shared.MetricsNames.CREATE_SCOPE;
 import static io.pravega.shared.MetricsNames.CREATE_SCOPE_FAILED;
@@ -67,6 +68,7 @@ import static io.pravega.shared.MetricsTags.readerGroupTags;
 /**
  * Class to encapsulate the logic to report Controller service metrics for Streams.
  */
+@Slf4j
 public final class StreamMetrics extends AbstractControllerMetrics {
 
     private static final AtomicReference<StreamMetrics> INSTANCE = new AtomicReference<>();
@@ -499,6 +501,8 @@ public final class StreamMetrics extends AbstractControllerMetrics {
             INSTANCE.get().updateSubscriberLatency.close();
             INSTANCE.get().createScopeLatency.close();
             INSTANCE.get().deleteScopeLatency.close();
+
+            log.info("Stream Metrics has been closed - {}", Thread.currentThread().getId());
 
             DYNAMIC_LOGGER.freezeCounters(CREATE_SCOPE);
             DYNAMIC_LOGGER.freezeCounters(CREATE_SCOPE_FAILED);

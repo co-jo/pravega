@@ -223,6 +223,7 @@ public class StreamMetricsTest {
         StreamMetrics.getInstance().deleteReaderGroupFailed("failedRG", "failedRG");
         StreamMetrics.getInstance().updateReaderGroupFailed("failedRG", "failedRG");
         StreamMetrics.getInstance().updateTruncationSCFailed("failedRG", "failedRG");
+        log.info("StreamMetricsTest CurrentThread - {}", Thread.currentThread().getId());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.CREATE_SCOPE_FAILED).count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.CREATE_STREAM_FAILED).count());
         assertEquals(1, (long) MetricRegistryUtils.getCounter(MetricsNames.DELETE_STREAM_FAILED).count());
